@@ -1,4 +1,5 @@
-use core::fmt;
+use std::fmt;
+use std::io::{self, stdin, Read};
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,9 +93,65 @@ pub fn parse_bf(tokens: &[BFToken]) -> Result<BFProgram, BFParseError> {
     }
 }
 
-fn main() {
-    let test_program = ">>>>+++-..,.<><<[fdsfasd+)_-[[]+>]]";
-    let tokens = tokenize_bf(test_program);
+pub struct BFInterpreter {
+    tape: [u8; 30000],
+    pointer: usize,
+}
+
+impl Default for BFInterpreter {
+    fn default() -> Self {
+        Self {
+            tape: [0; 30000],
+            pointer: 0,
+        }
+    }
+}
+
+impl BFInterpreter {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn run_instructions(&mut self, instructions: &[BFTree]) {
+        for tree in instructions {
+            match tree {
+                BFTree::Left => self.pointer -= 1,
+                BFTree::Right => self.pointer += 1,
+                BFTree::Inc => self.tape[self.pointer] = self.tape[self.pointer].wrapping_add(1),
+                BFTree::Dec => self.tape[self.pointer] = self.tape[self.pointer].wrapping_sub(1),
+                BFTree::Write => print!("{}", self.tape[self.pointer] as char),
+                BFTree::Read => {
+                    let mut byte = [0_u8];
+                    {
+                        let mut stdin_handle = stdin().lock();
+                        stdin_handle.read_exact(&mut byte).unwrap();
+                        if byte[0] == 13 {
+                            stdin_handle.read_exact(&mut byte).unwrap();
+                        }
+                    }
+                    self.tape[self.pointer] = byte[0];
+                }
+                BFTree::Loop(instructions) => loop {
+                    if self.tape[self.pointer] == 0 {
+                        break;
+                    }
+                    self.run_instructions(instructions);
+                },
+            }
+        }
+    }
+
+    pub fn run(&mut self, program: &BFProgram) {
+        self.run_instructions(&program.0);
+    }
+}
+
+fn main() -> io::Result<()> {
+    let test_program = std::fs::read_to_string("bf_programs/life.bf")?;
+    let tokens = tokenize_bf(&test_program);
     let program = parse_bf(&tokens).expect("Invalid program");
     println!("{program:?}");
+    let mut interpreter = BFInterpreter::new();
+    interpreter.run(&program);
+    Ok(())
 }
