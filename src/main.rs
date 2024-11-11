@@ -34,10 +34,8 @@ pub fn tokenize_bf(text: &str) -> Vec<BFToken> {
 
 #[derive(Debug, Clone)]
 pub enum BFTree {
-    Left,
-    Right,
-    Inc,
-    Dec,
+    Move(isize),
+    Add(u8),
     Write,
     Read,
     Loop(Vec<BFTree>),
@@ -62,10 +60,34 @@ fn parse_bf_impl(tokens: &[BFToken], index: &mut usize) -> Vec<BFTree> {
 
     while *index < tokens.len() {
         match tokens[*index] {
-            BFToken::Left => result.push(BFTree::Left),
-            BFToken::Right => result.push(BFTree::Right),
-            BFToken::Inc => result.push(BFTree::Inc),
-            BFToken::Dec => result.push(BFTree::Dec),
+            BFToken::Left => {
+                if let Some(BFTree::Move(movement)) = result.last_mut() {
+                    *movement -= 1;
+                } else {
+                    result.push(BFTree::Move(-1));
+                }
+            }
+            BFToken::Right => {
+                if let Some(BFTree::Move(movement)) = result.last_mut() {
+                    *movement += 1;
+                } else {
+                    result.push(BFTree::Move(1));
+                }
+            }
+            BFToken::Inc => {
+                if let Some(BFTree::Add(addition)) = result.last_mut() {
+                    *addition = addition.wrapping_add(1);
+                } else {
+                    result.push(BFTree::Add(1));
+                }
+            }
+            BFToken::Dec => {
+                if let Some(BFTree::Add(addition)) = result.last_mut() {
+                    *addition = addition.wrapping_sub(1);
+                } else {
+                    result.push(BFTree::Add(255));
+                }
+            }
             BFToken::Write => result.push(BFTree::Write),
             BFToken::Read => result.push(BFTree::Read),
             BFToken::BeginLoop => {
@@ -115,10 +137,10 @@ impl BFInterpreter {
     pub fn run_instructions(&mut self, instructions: &[BFTree]) {
         for tree in instructions {
             match tree {
-                BFTree::Left => self.pointer -= 1,
-                BFTree::Right => self.pointer += 1,
-                BFTree::Inc => self.tape[self.pointer] = self.tape[self.pointer].wrapping_add(1),
-                BFTree::Dec => self.tape[self.pointer] = self.tape[self.pointer].wrapping_sub(1),
+                BFTree::Move(amount) => self.pointer = ((self.pointer as isize) + amount) as usize,
+                BFTree::Add(amount) => {
+                    self.tape[self.pointer] = self.tape[self.pointer].wrapping_add(*amount)
+                }
                 BFTree::Write => print!("{}", self.tape[self.pointer] as char),
                 BFTree::Read => {
                     let mut byte = [0_u8];
@@ -147,7 +169,7 @@ impl BFInterpreter {
 }
 
 fn main() -> io::Result<()> {
-    let test_program = std::fs::read_to_string("bf_programs/life.bf")?;
+    let test_program = std::fs::read_to_string("bf_programs/squares.bf")?;
     let tokens = tokenize_bf(&test_program);
     let program = parse_bf(&tokens).expect("Invalid program");
     println!("{program:?}");
