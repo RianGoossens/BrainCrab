@@ -52,7 +52,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "brainfuck-lang"
+name = "braincrab"
 version = "0.1.0"
 dependencies = [
  "clap",
