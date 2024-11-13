@@ -200,37 +200,46 @@ enum Commands {
     Repl,
 }
 
-fn run(path: PathBuf) -> io::Result<()> {
-    let script = std::fs::read_to_string(path)?;
-    let tokens = tokenize_bf(&script);
-    let program = parse_bf(&tokens).expect("Invalid program");
-    let mut interpreter = BFInterpreter::new();
-    interpreter.run(&program);
-    Ok(())
-}
-
-fn repl() -> io::Result<()> {
-    let mut interpreter = BFInterpreter::new();
-    loop {
-        let mut buffer = String::new();
-
-        {
-            let mut stdin = stdin().lock();
-            stdin
-                .read_line(&mut buffer)
-                .expect("Could not read line from stdin.");
+impl Cli {
+    fn start(self) -> io::Result<()> {
+        match self.command {
+            Commands::Run { path } => Self::run(path),
+            Commands::Repl => Self::repl(),
         }
+    }
 
-        match parse_bf(&tokenize_bf(&buffer)) {
-            Ok(program) => {
-                if program.0.is_empty() {
-                    return Ok(());
-                } else {
-                    interpreter.run(&program);
-                    println!();
-                }
+    fn run(path: PathBuf) -> io::Result<()> {
+        let script = std::fs::read_to_string(path)?;
+        let tokens = tokenize_bf(&script);
+        let program = parse_bf(&tokens).expect("Invalid program");
+        let mut interpreter = BFInterpreter::new();
+        interpreter.run(&program);
+        Ok(())
+    }
+
+    fn repl() -> io::Result<()> {
+        let mut interpreter = BFInterpreter::new();
+        loop {
+            let mut buffer = String::new();
+
+            {
+                let mut stdin = stdin().lock();
+                stdin
+                    .read_line(&mut buffer)
+                    .expect("Could not read line from stdin.");
             }
-            Err(error) => println!("{error}"),
+
+            match parse_bf(&tokenize_bf(&buffer)) {
+                Ok(program) => {
+                    if program.0.is_empty() {
+                        return Ok(());
+                    } else {
+                        interpreter.run(&program);
+                        println!();
+                    }
+                }
+                Err(error) => println!("{error}"),
+            }
         }
     }
 }
@@ -238,8 +247,5 @@ fn repl() -> io::Result<()> {
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Run { path } => run(path),
-        Commands::Repl => repl(),
-    }
+    cli.start()
 }
