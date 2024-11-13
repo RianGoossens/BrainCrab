@@ -8,4 +8,6 @@ BrainCrab
 A Brainfuck cli with various utilities included."""
 
 [dependencies]
-clap = { version = "4.5.20", features = ["derive"] }
+braincrab_core = { path = "braincrab_core" }
+braincrab_macros = { path = "braincrab_macros" }
+clap = { version = "4.5.21", features = ["derive"] }
