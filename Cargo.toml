@@ -2,7 +2,10 @@
 name = "braincrab"
 version = "0.1.0"
 edition = "2021"
-description = "A Brainfuck cli with various utilities included."
+authors = ["Rian Goossens <riangoossens@gmail.com>"]
+description = """
+BrainCrab
+A Brainfuck cli with various utilities included."""
 
 [dependencies]
 clap = { version = "4.5.20", features = ["derive"] }
