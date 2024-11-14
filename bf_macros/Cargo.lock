@@ -3,9 +3,19 @@
 version = 3
 
 [[package]]
+name = "braincrab_core"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
 name = "braincrab_macros"
 version = "0.1.0"
 dependencies = [
+ "braincrab_core",
+ "proc-macro2",
  "quote",
  "syn",
 ]

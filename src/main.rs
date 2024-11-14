@@ -1,7 +1,7 @@
 use std::io::{self, stdin, BufRead};
 use std::path::PathBuf;
 
-use braincrab_core::{parse_bf, BFInterpreter};
+use bf_core::{parse_bf, BFInterpreter};
 use clap::builder::styling::AnsiColor;
 use clap::builder::Styles;
 use clap::{Parser, Subcommand};

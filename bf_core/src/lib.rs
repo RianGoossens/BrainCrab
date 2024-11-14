@@ -3,10 +3,6 @@ use std::{
     io::{stdin, Read},
 };
 
-use proc_macro2::TokenStream;
-use quote::quote;
-use quote::ToTokens;
-
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BFToken {
@@ -49,41 +45,6 @@ pub enum BFTree {
 
 #[derive(Debug, Clone)]
 pub struct BFProgram(pub Vec<BFTree>);
-
-impl ToTokens for BFTree {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let tokenized = match self {
-            BFTree::Move(offset) => quote! { BFTree::Move(#offset) },
-            BFTree::Add(value) => quote! { BFTree::Add(#value) },
-            BFTree::Write => quote! { BFTree::Write },
-            BFTree::Read => quote! { BFTree::Read },
-            BFTree::Loop(subtrees) => {
-                let subtrees_tokens = subtrees.iter().map(|subtree| {
-                    let mut subtree_tokens = TokenStream::new();
-                    subtree.to_tokens(&mut subtree_tokens);
-                    subtree_tokens
-                });
-                quote! { BFTree::Loop(vec![#(#subtrees_tokens),*]) }
-            }
-        };
-
-        tokens.extend(tokenized);
-    }
-}
-
-impl ToTokens for BFProgram {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let bftrees_tokens = self.0.iter().map(|tree| {
-            let mut tree_tokens = TokenStream::new();
-            tree.to_tokens(&mut tree_tokens);
-            tree_tokens
-        });
-
-        tokens.extend(quote! {
-            BFProgram(vec![#(#bftrees_tokens),*])
-        });
-    }
-}
 
 #[derive(Debug, Clone, Copy)]
 pub enum BFParseError {

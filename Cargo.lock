@@ -52,29 +52,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "bf_core"
+version = "0.1.0"
+
+[[package]]
+name = "bf_macros"
+version = "0.1.0"
+dependencies = [
+ "bf_core",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "braincrab"
 version = "0.1.0"
 dependencies = [
- "braincrab_core",
- "braincrab_macros",
+ "bf_core",
+ "bf_macros",
  "clap",
-]
-
-[[package]]
-name = "braincrab_core"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
-]
-
-[[package]]
-name = "braincrab_macros"
-version = "0.1.0"
-dependencies = [
- "braincrab_core",
- "quote",
- "syn",
 ]
 
 [[package]]
