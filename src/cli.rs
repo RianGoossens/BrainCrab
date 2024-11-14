@@ -1,7 +1,7 @@
 use std::io::{self, stdin, BufRead};
 use std::path::PathBuf;
 
-use bf_core::{parse_bf, BFInterpreter};
+use bf_core::{BFInterpreter, BFProgram};
 use clap::builder::styling::AnsiColor;
 use clap::builder::Styles;
 use clap::{Parser, Subcommand};
@@ -43,7 +43,7 @@ impl Cli {
 
     fn run(path: PathBuf) -> io::Result<()> {
         let script = std::fs::read_to_string(path)?;
-        let program = parse_bf(&script).expect("Invalid program");
+        let program = BFProgram::parse(&script).expect("Invalid program");
         let mut interpreter = BFInterpreter::new();
         interpreter.run(&program);
         Ok(())
@@ -61,7 +61,7 @@ impl Cli {
                     .expect("Could not read line from stdin.");
             }
 
-            match parse_bf(&buffer) {
+            match BFProgram::parse(&buffer) {
                 Ok(program) => {
                     if program.0.is_empty() {
                         return Ok(());

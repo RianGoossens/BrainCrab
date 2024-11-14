@@ -1,4 +1,4 @@
-use bf_core::{parse_bf, BFProgram, BFTree};
+use bf_core::{BFProgram, BFTree};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
@@ -41,7 +41,7 @@ pub fn bf(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as LitStr);
     let brainfuck_code = input.value();
 
-    let compiled_program = parse_bf(&brainfuck_code).expect("Not a valid Brainfuck program");
+    let compiled_program = BFProgram::parse(&brainfuck_code).expect("Not a valid Brainfuck program");
 
     // Generate the tokens for returning an instance of `BFProgram`
     let mut bfprogram_tokens = TokenStream2::new();
