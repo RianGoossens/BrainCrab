@@ -16,22 +16,40 @@ pub enum BFToken {
     EndLoop,
 }
 
-pub fn tokenize_bf(text: &str) -> Vec<BFToken> {
-    let mut result = vec![];
-    for char in text.chars() {
-        match char {
-            '<' => result.push(BFToken::Left),
-            '>' => result.push(BFToken::Right),
-            '+' => result.push(BFToken::Inc),
-            '-' => result.push(BFToken::Dec),
-            '.' => result.push(BFToken::Write),
-            ',' => result.push(BFToken::Read),
-            '[' => result.push(BFToken::BeginLoop),
-            ']' => result.push(BFToken::EndLoop),
-            _ => {}
+impl BFToken {
+    pub fn to_char(&self) -> char {
+        match self {
+            BFToken::Left => '<',
+            BFToken::Right => '>',
+            BFToken::Inc => '+',
+            BFToken::Dec => '-',
+            BFToken::Write => '.',
+            BFToken::Read => ',',
+            BFToken::BeginLoop => '[',
+            BFToken::EndLoop => ']',
         }
     }
-    result
+    pub fn from_char(character: char) -> Option<Self> {
+        match character {
+            '<' => Some(BFToken::Left),
+            '>' => Some(BFToken::Right),
+            '+' => Some(BFToken::Inc),
+            '-' => Some(BFToken::Dec),
+            '.' => Some(BFToken::Write),
+            ',' => Some(BFToken::Read),
+            '[' => Some(BFToken::BeginLoop),
+            ']' => Some(BFToken::EndLoop),
+            _ => None,
+        }
+    }
+}
+
+pub fn tokenize_bf(text: &str) -> Vec<BFToken> {
+    text.chars().flat_map(BFToken::from_char).collect()
+}
+
+pub fn stringify_bf_tokens(tokens: &[BFToken]) -> String {
+    tokens.iter().map(BFToken::to_char).collect()
 }
 
 #[derive(Debug, Clone)]
@@ -43,8 +61,52 @@ pub enum BFTree {
     Loop(Vec<BFTree>),
 }
 
+impl BFTree {
+    fn to_tokens_impl(&self, result: &mut Vec<BFToken>) {
+        match self {
+            BFTree::Move(amount) => result.extend(if *amount < 0 {
+                [BFToken::Left].repeat(-amount as usize)
+            } else {
+                [BFToken::Right].repeat(*amount as usize)
+            }),
+            BFTree::Add(amount) => result.extend(if *amount > 127 {
+                [BFToken::Dec].repeat((255 - amount + 1) as usize)
+            } else {
+                [BFToken::Inc].repeat(*amount as usize)
+            }),
+            BFTree::Write => result.push(BFToken::Write),
+            BFTree::Read => result.push(BFToken::Read),
+            BFTree::Loop(vec) => {
+                result.push(BFToken::BeginLoop);
+                vec.iter().for_each(|tree| tree.to_tokens_impl(result));
+                result.push(BFToken::EndLoop);
+            }
+        }
+    }
+    pub fn to_tokens(&self) -> Vec<BFToken> {
+        let mut result = vec![];
+        self.to_tokens_impl(&mut result);
+        result
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BFProgram(pub Vec<BFTree>);
+
+impl BFProgram {
+    fn to_tokens_impl(&self, result: &mut Vec<BFToken>) {
+        self.0.iter().for_each(|tree| tree.to_tokens_impl(result));
+    }
+    pub fn to_tokens(&self) -> Vec<BFToken> {
+        let mut result = vec![];
+        self.to_tokens_impl(&mut result);
+        result
+    }
+    pub fn to_string(&self) -> String {
+        let tokens = self.to_tokens();
+        stringify_bf_tokens(&tokens)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum BFParseError {
