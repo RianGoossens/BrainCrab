@@ -9,4 +9,4 @@ A Brainfuck CLI. My long term goal is to turn this into a toolchain for a progra
 Here are my upcoming tasks.
 - Refine repl, perhaps use crossterm or even ratatui?
 - Start working on a new programming language on top of Brainfuck.
-- Clean up braincrab_core. Maybe I want a bf_core and bf_macros instead, so braincrab_core can be for the new programming language.
+- Convert BFProgram and BFTrees back to BFTokens, and write BFTokens to a file.
