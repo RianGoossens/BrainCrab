@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    io::{stdin, Read},
+    io::{stdin, stdout, Read, Write},
 };
 
 #[repr(u8)]
@@ -54,7 +54,7 @@ pub fn stringify_bf_tokens(tokens: &[BFToken]) -> String {
 
 #[derive(Debug, Clone)]
 pub enum BFTree {
-    Move(isize),
+    Move(i16),
     Add(u8),
     Write,
     Read,
@@ -90,12 +90,16 @@ impl BFTree {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct BFProgram(pub Vec<BFTree>);
 
 impl BFProgram {
     pub fn new() -> Self {
         BFProgram(vec![])
+    }
+
+    pub fn push(&mut self, instruction: BFTree) {
+        self.0.push(instruction);
     }
 
     pub fn append(&mut self, mut rhs: BFProgram) {
@@ -212,7 +216,7 @@ impl BFInterpreter {
     pub fn run_instructions(&mut self, instructions: &[BFTree]) {
         for tree in instructions {
             match tree {
-                BFTree::Move(amount) => self.pointer = ((self.pointer as isize) + amount) as usize,
+                BFTree::Move(amount) => self.pointer = ((self.pointer as i16) + amount) as usize,
                 BFTree::Add(amount) => {
                     self.tape[self.pointer] = self.tape[self.pointer].wrapping_add(*amount)
                 }
@@ -240,5 +244,6 @@ impl BFInterpreter {
 
     pub fn run(&mut self, program: &BFProgram) {
         self.run_instructions(&program.0);
+        stdout().flush().unwrap();
     }
 }
