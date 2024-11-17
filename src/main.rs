@@ -116,8 +116,8 @@ impl<'a> BFProgramBuilder<'a> {
                     self.program().push(BFTree::Add(value));
                 }
                 Value::Variable(name) => {
-                    let address = self.get_variable(name)?;
-                    self.copy_cell(address, &[address])?;
+                    let source = self.get_variable(name)?;
+                    self.copy_cell(source, &[address])?;
                 }
             }
             Ok(address)
