@@ -1,6 +1,6 @@
 mod cli;
 
-use std::{cell::RefCell, collections::HashMap, io, rc::Rc};
+use std::{cell::RefCell, cmp::Ordering, collections::HashMap, io, rc::Rc};
 
 use bf_core::{BFInterpreter, BFProgram, BFTree};
 use bf_macros::bf;
@@ -19,6 +19,7 @@ pub enum Instruction<'a> {
     Copy { name: &'a str, value: &'a str },
     Write { name: &'a str },
     Read { name: &'a str },
+    WriteString { string: &'a str },
 }
 
 pub struct Program<'a> {
@@ -32,6 +33,7 @@ pub enum CompilerError {
     NoFreeAddresses,
     ClosingNonExistantLoop,
     UnclosedLoop,
+    NonAsciiString(String),
 }
 
 pub struct Temp {
@@ -227,6 +229,33 @@ impl<'a> BFProgramBuilder<'a> {
         self.move_cell(temp.address, &[source]);
         Ok(())
     }
+
+    pub fn write_string(&mut self, string: &str) -> CompileResult<()> {
+        if string.is_ascii() {
+            let temp = self.new_temp()?;
+            self.move_pointer_to(temp.address);
+            let mut current_value = 0u8;
+            for char in string.chars() {
+                let new_value = char as u8;
+                match new_value.cmp(&current_value) {
+                    Ordering::Greater => {
+                        self.program().push(BFTree::Add(new_value - current_value))
+                    }
+                    Ordering::Less => self
+                        .program()
+                        .push(BFTree::Add(255 - current_value + new_value + 1)),
+                    _ => {}
+                }
+                self.write();
+                current_value = new_value;
+            }
+            self.program().push(BFTree::Add(255 - current_value + 1));
+
+            Ok(())
+        } else {
+            Err(CompilerError::NonAsciiString(string.to_owned()))
+        }
+    }
 }
 
 pub fn compile(program: &Program) -> CompileResult<BFProgram> {
@@ -252,6 +281,9 @@ pub fn compile(program: &Program) -> CompileResult<BFProgram> {
                 builder.move_pointer_to(address);
                 builder.read();
             }
+            Instruction::WriteString { string } => {
+                builder.write_string(string)?;
+            }
         }
     }
 
@@ -261,6 +293,9 @@ pub fn compile(program: &Program) -> CompileResult<BFProgram> {
 fn main() -> io::Result<()> {
     let program = Program {
         instructions: vec![
+            Instruction::WriteString {
+                string: "Hello World!\n",
+            },
             Instruction::Define {
                 name: "x",
                 value: Value::Literal(b'H'),
