@@ -8,4 +8,16 @@ A Brainfuck CLI. My long term goal is to turn this into a toolchain for a progra
 ## TODO
 Here are my upcoming tasks.
 - Refine repl, perhaps use crossterm or even ratatui?
-- Start working on a new programming language on top of Brainfuck.
+
+### Braincrab Language TODO
+- Addition
+- Substraction
+- Multiplication
+- Division
+- Modulo
+- Loop Until 0 (While)
+- If/Else
+- Logical And
+- Logical Or
+- Logical Not
+- Expressions

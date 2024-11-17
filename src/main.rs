@@ -1,6 +1,6 @@
 mod cli;
 
-use std::{cell::RefCell, cmp::Ordering, collections::HashMap, io, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, io, rc::Rc};
 
 use bf_core::{BFInterpreter, BFProgram, BFTree};
 use bf_macros::bf;
@@ -8,15 +8,34 @@ use clap::Parser;
 use cli::Cli;
 
 #[derive(Clone, Copy)]
-pub enum Value<'a> {
+pub enum Identifier<'a> {
+    Named(&'a str),
     Cell(u16),
+}
+
+#[derive(Clone, Copy)]
+pub enum Value<'a> {
     Literal(u8),
-    Variable(&'a str),
+    Identifier(Identifier<'a>),
+}
+
+impl<'a> Value<'a> {
+    pub fn literal(value: u8) -> Self {
+        Self::Literal(value)
+    }
+
+    pub fn cell(address: u16) -> Self {
+        Self::Identifier(Identifier::Cell(address))
+    }
+
+    pub fn named(name: &'a str) -> Self {
+        Self::Identifier(Identifier::Named(name))
+    }
 }
 
 pub enum Instruction<'a> {
     Define { name: &'a str, value: Value<'a> },
-    Copy { name: &'a str, value: &'a str },
+    Assign { name: &'a str, value: Value<'a> },
     Write { name: &'a str },
     Read { name: &'a str },
     WriteString { string: &'a str },
@@ -112,25 +131,31 @@ impl<'a> BFProgramBuilder<'a> {
             self.variable_map.insert(name, address);
 
             match value {
-                Value::Cell(address) => self.copy_cell(address, &[address])?,
                 Value::Literal(value) => {
                     self.move_pointer_to(address);
                     self.program().push(BFTree::Add(value));
                 }
-                Value::Variable(name) => {
-                    let source = self.get_variable(name)?;
-                    self.copy_cell(source, &[address])?;
+                Value::Identifier(identifier) => {
+                    let source = self.identifier_address(identifier)?;
+                    self.copy_to_empty_cells(source, &[address])?;
                 }
             }
             Ok(address)
         }
     }
 
-    pub fn get_variable(&mut self, name: &'a str) -> CompileResult<u16> {
+    pub fn get_variable(&self, name: &'a str) -> CompileResult<u16> {
         if let Some(address) = self.variable_map.get(name) {
             Ok(*address)
         } else {
             Err(CompilerError::UndefinedVariable(name.into()))
+        }
+    }
+
+    pub fn identifier_address(&self, identifier: Identifier<'a>) -> CompileResult<u16> {
+        match identifier {
+            Identifier::Named(name) => self.get_variable(name),
+            Identifier::Cell(address) => Ok(address),
         }
     }
 
@@ -156,19 +181,19 @@ impl<'a> BFProgramBuilder<'a> {
         }
     }
 
-    pub fn inc(&mut self) {
+    pub fn inc_current(&mut self) {
         self.program().push(BFTree::Add(1));
     }
 
-    pub fn dec(&mut self) {
+    pub fn dec_current(&mut self) {
         self.program().push(BFTree::Add(255));
     }
 
-    pub fn write(&mut self) {
+    pub fn write_current(&mut self) {
         self.program().push(BFTree::Write);
     }
 
-    pub fn read(&mut self) {
+    pub fn read_current(&mut self) {
         self.program().push(BFTree::Read);
     }
 
@@ -198,22 +223,39 @@ impl<'a> BFProgramBuilder<'a> {
 
     // Utilities
 
-    pub fn zero(&mut self) {
+    pub fn add_to_current(&mut self, amount: u8) {
+        if amount > 0 {
+            self.program().push(BFTree::Add(amount));
+        }
+    }
+
+    pub fn sub_from_current(&mut self, amount: u8) {
+        if amount > 0 {
+            self.program().push(BFTree::Add(255 - amount + 1));
+        }
+    }
+
+    pub fn zero_current(&mut self) {
         self.program().append(bf!("[-]"));
     }
 
-    pub fn set(&mut self, value: u8) {
-        self.zero();
-        self.program().push(BFTree::Add(value));
+    pub fn zero(&mut self, address: u16) {
+        self.move_pointer_to(address);
+        self.zero_current();
     }
 
-    pub fn move_cell(&mut self, source: u16, destinations: &[u16]) {
+    pub fn set_current(&mut self, value: u8) {
+        self.zero_current();
+        self.add_to_current(value);
+    }
+
+    pub fn move_to_empty_cells(&mut self, source: u16, destinations: &[u16]) {
         self.move_pointer_to(source);
         self.loop_until_zero(|builder| {
-            builder.dec();
+            builder.dec_current();
             for destination in destinations {
                 builder.move_pointer_to(*destination);
-                builder.inc();
+                builder.inc_current();
             }
             builder.move_pointer_to(source);
             Ok(())
@@ -221,12 +263,24 @@ impl<'a> BFProgramBuilder<'a> {
         .unwrap();
     }
 
-    pub fn copy_cell(&mut self, source: u16, destinations: &[u16]) -> CompileResult<()> {
+    pub fn copy_to_empty_cells(&mut self, source: u16, destinations: &[u16]) -> CompileResult<()> {
         let temp = self.new_temp()?;
         let mut destinations = destinations.to_vec();
         destinations.push(temp.address);
-        self.move_cell(source, &destinations);
-        self.move_cell(temp.address, &[source]);
+        self.move_to_empty_cells(source, &destinations);
+        self.move_to_empty_cells(temp.address, &[source]);
+        Ok(())
+    }
+
+    pub fn assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
+        self.zero(destination);
+        match value {
+            Value::Literal(value) => self.add_to_current(value),
+            Value::Identifier(identifier) => {
+                let address = self.identifier_address(identifier)?;
+                self.copy_to_empty_cells(address, &[destination])?;
+            }
+        }
         Ok(())
     }
 
@@ -237,19 +291,12 @@ impl<'a> BFProgramBuilder<'a> {
             let mut current_value = 0u8;
             for char in string.chars() {
                 let new_value = char as u8;
-                match new_value.cmp(&current_value) {
-                    Ordering::Greater => {
-                        self.program().push(BFTree::Add(new_value - current_value))
-                    }
-                    Ordering::Less => self
-                        .program()
-                        .push(BFTree::Add(255 - current_value + new_value + 1)),
-                    _ => {}
-                }
-                self.write();
+                let offset = new_value.wrapping_sub(current_value);
+                self.add_to_current(offset);
+                self.write_current();
                 current_value = new_value;
             }
-            self.program().push(BFTree::Add(255 - current_value + 1));
+            self.sub_from_current(current_value);
 
             Ok(())
         } else {
@@ -266,20 +313,19 @@ pub fn compile(program: &Program) -> CompileResult<BFProgram> {
             Instruction::Define { name, value } => {
                 builder.new_variable(name, *value)?;
             }
-            Instruction::Copy { name, value } => {
+            Instruction::Assign { name, value } => {
                 let destination = builder.get_variable(name)?;
-                let source = builder.get_variable(value)?;
-                builder.copy_cell(source, &[destination])?;
+                builder.assign(destination, *value)?;
             }
             Instruction::Write { name } => {
                 let address = builder.get_variable(name)?;
                 builder.move_pointer_to(address);
-                builder.write();
+                builder.write_current();
             }
             Instruction::Read { name } => {
                 let address = builder.get_variable(name)?;
                 builder.move_pointer_to(address);
-                builder.read();
+                builder.read_current();
             }
             Instruction::WriteString { string } => {
                 builder.write_string(string)?;
@@ -298,17 +344,17 @@ fn main() -> io::Result<()> {
             },
             Instruction::Define {
                 name: "x",
-                value: Value::Literal(b'H'),
+                value: Value::literal(b'H'),
             },
             Instruction::Define {
                 name: "y",
-                value: Value::Literal(b'i'),
+                value: Value::literal(b'i'),
             },
             Instruction::Write { name: "x" },
             Instruction::Write { name: "y" },
             Instruction::Define {
                 name: "z",
-                value: Value::Variable("y"),
+                value: Value::named("y"),
             },
             Instruction::Write { name: "z" },
         ],
@@ -318,9 +364,8 @@ fn main() -> io::Result<()> {
     let mut interpreter = BFInterpreter::new();
     interpreter.run(&bf_program);
 
-    /*
     let cli = Cli::parse();
 
-    cli.start()*/
+    cli.start()?;
     Ok(())
 }
