@@ -33,6 +33,11 @@ impl<'a> Value<'a> {
     }
 }
 
+pub enum Expression<'a> {
+    Value(Value<'a>),
+    Add(Box<Expression<'a>>, Box<Expression<'a>>),
+}
+
 pub enum Instruction<'a> {
     Define { name: &'a str, value: Value<'a> },
     Assign { name: &'a str, value: Value<'a> },
@@ -229,6 +234,29 @@ impl<'a> BFProgramBuilder<'a> {
         }
     }
 
+    pub fn add_assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
+        match value {
+            Value::Literal(value) => {
+                self.move_pointer_to(destination);
+                self.add_to_current(value);
+            }
+            Value::Identifier(identifier) => {
+                let source = self.identifier_address(identifier)?;
+
+                if source == destination {
+                    let temp = self.new_temp()?;
+                    self.copy_to_empty_cells(source, &[temp.address])?;
+                    self.move_to_empty_cells(temp.address, &[destination]);
+                } else {
+                    let temp = self.new_temp()?;
+                    self.copy_to_empty_cells(source, &[destination, temp.address])?;
+                    self.move_to_empty_cells(temp.address, &[source]);
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn sub_from_current(&mut self, amount: u8) {
         if amount > 0 {
             self.program().push(BFTree::Add(255 - amount + 1));
@@ -302,6 +330,16 @@ impl<'a> BFProgramBuilder<'a> {
         } else {
             Err(CompilerError::NonAsciiString(string.to_owned()))
         }
+    }
+
+    // Expressions
+
+    pub fn eval_expression(
+        &mut self,
+        destination: Option<u16>,
+        expression: &Expression<'a>,
+    ) -> CompileResult<Value<'a>> {
+        todo!()
     }
 }
 
