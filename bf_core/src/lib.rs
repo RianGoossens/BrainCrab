@@ -98,12 +98,18 @@ impl BFProgram {
         BFProgram(vec![])
     }
 
-    pub fn push(&mut self, instruction: BFTree) {
-        self.0.push(instruction);
+    pub fn push_instruction(&mut self, instruction: BFTree) {
+        match (&instruction, self.0.last_mut()) {
+            (BFTree::Move(a), Some(BFTree::Move(b))) => *b += a,
+            (BFTree::Add(a), Some(BFTree::Add(b))) => *b = b.wrapping_add(*a),
+            _ => self.0.push(instruction),
+        }
     }
 
-    pub fn append(&mut self, mut rhs: BFProgram) {
-        self.0.append(&mut rhs.0);
+    pub fn append(&mut self, rhs: BFProgram) {
+        for instruction in rhs.0 {
+            self.push_instruction(instruction);
+        }
     }
 
     fn parse_bf_tokens_impl(tokens: &[BFToken], index: &mut usize) -> Vec<BFTree> {
@@ -211,6 +217,10 @@ impl Default for BFInterpreter {
 impl BFInterpreter {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn tape(&self) -> &[u8; 30000] {
+        &self.tape
     }
 
     pub fn run_instructions(&mut self, instructions: &[BFTree]) {

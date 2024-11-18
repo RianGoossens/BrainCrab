@@ -7,13 +7,20 @@ use bf_macros::bf;
 use clap::Parser;
 use cli::Cli;
 
-#[derive(Clone, Copy)]
 pub enum Identifier<'a> {
     Named(&'a str),
-    Cell(u16),
+    Temp(Temp),
 }
 
-#[derive(Clone, Copy)]
+impl<'a> Identifier<'a> {
+    pub fn is_temp(&self) -> bool {
+        matches!(self, Identifier::Temp(_))
+    }
+    pub fn is_named(&self) -> bool {
+        matches!(self, Identifier::Named(_))
+    }
+}
+
 pub enum Value<'a> {
     Literal(u8),
     Identifier(Identifier<'a>),
@@ -24,12 +31,12 @@ impl<'a> Value<'a> {
         Self::Literal(value)
     }
 
-    pub fn cell(address: u16) -> Self {
-        Self::Identifier(Identifier::Cell(address))
-    }
-
     pub fn named(name: &'a str) -> Self {
         Self::Identifier(Identifier::Named(name))
+    }
+
+    pub fn temp(temp: Temp) -> Self {
+        Self::Identifier(Identifier::Temp(temp))
     }
 }
 
@@ -41,6 +48,8 @@ pub enum Expression<'a> {
 pub enum Instruction<'a> {
     Define { name: &'a str, value: Value<'a> },
     Assign { name: &'a str, value: Value<'a> },
+    AddAssign { name: &'a str, value: Value<'a> },
+    SubAssign { name: &'a str, value: Value<'a> },
     Write { name: &'a str },
     Read { name: &'a str },
     WriteString { string: &'a str },
@@ -106,6 +115,10 @@ impl<'a> BFProgramBuilder<'a> {
         self.program_stack.last_mut().unwrap()
     }
 
+    pub fn push_instruction(&mut self, instruction: BFTree) {
+        self.program().push_instruction(instruction);
+    }
+
     pub fn build(mut self) -> CompileResult<BFProgram> {
         if self.program_stack.len() != 1 {
             Err(CompilerError::UnclosedLoop)
@@ -135,16 +148,11 @@ impl<'a> BFProgramBuilder<'a> {
             let address = self.new_address()?;
             self.variable_map.insert(name, address);
 
-            match value {
-                Value::Literal(value) => {
-                    self.move_pointer_to(address);
-                    self.program().push(BFTree::Add(value));
-                }
-                Value::Identifier(identifier) => {
-                    let source = self.identifier_address(identifier)?;
-                    self.copy_to_empty_cells(source, &[address])?;
-                }
-            }
+            self.n_times(value, |builder| {
+                builder.move_pointer_to(address);
+                builder.inc_current();
+                Ok(())
+            })?;
             Ok(address)
         }
     }
@@ -157,10 +165,10 @@ impl<'a> BFProgramBuilder<'a> {
         }
     }
 
-    pub fn identifier_address(&self, identifier: Identifier<'a>) -> CompileResult<u16> {
+    pub fn identifier_address(&self, identifier: &Identifier<'a>) -> CompileResult<u16> {
         match identifier {
             Identifier::Named(name) => self.get_variable(name),
-            Identifier::Cell(address) => Ok(address),
+            Identifier::Temp(temp) => Ok(temp.address),
         }
     }
 
@@ -176,7 +184,7 @@ impl<'a> BFProgramBuilder<'a> {
 
     pub fn move_pointer(&mut self, amount: i16) {
         self.pointer = ((self.pointer as i16) + amount) as u16;
-        self.program().push(BFTree::Move(amount));
+        self.push_instruction(BFTree::Move(amount));
     }
 
     pub fn move_pointer_to(&mut self, address: u16) {
@@ -187,19 +195,19 @@ impl<'a> BFProgramBuilder<'a> {
     }
 
     pub fn inc_current(&mut self) {
-        self.program().push(BFTree::Add(1));
+        self.push_instruction(BFTree::Add(1));
     }
 
     pub fn dec_current(&mut self) {
-        self.program().push(BFTree::Add(255));
+        self.push_instruction(BFTree::Add(255));
     }
 
     pub fn write_current(&mut self) {
-        self.program().push(BFTree::Write);
+        self.push_instruction(BFTree::Write);
     }
 
     pub fn read_current(&mut self) {
-        self.program().push(BFTree::Read);
+        self.push_instruction(BFTree::Read);
     }
 
     fn start_loop(&mut self) {
@@ -211,104 +219,121 @@ impl<'a> BFProgramBuilder<'a> {
             Err(CompilerError::ClosingNonExistantLoop)
         } else {
             let loop_program = self.program_stack.pop().unwrap();
-            self.program().push(BFTree::Loop(loop_program.0));
+            self.program()
+                .push_instruction(BFTree::Loop(loop_program.0));
             Ok(())
         }
     }
 
-    pub fn loop_until_zero<F: FnOnce(&mut Self) -> CompileResult<()>>(
+    pub fn loop_while<F: FnOnce(&mut Self) -> CompileResult<()>>(
         &mut self,
+        predicate: u16,
         f: F,
     ) -> CompileResult<()> {
+        self.move_pointer_to(predicate);
         self.start_loop();
         f(self)?;
+        self.move_pointer_to(predicate);
         self.end_loop()?;
         Ok(())
     }
 
     // Utilities
 
-    pub fn add_to_current(&mut self, amount: u8) {
-        if amount > 0 {
-            self.program().push(BFTree::Add(amount));
-        }
-    }
-
-    pub fn add_assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
-        match value {
-            Value::Literal(value) => {
-                self.move_pointer_to(destination);
-                self.add_to_current(value);
-            }
-            Value::Identifier(identifier) => {
-                let source = self.identifier_address(identifier)?;
-
-                if source == destination {
-                    let temp = self.new_temp()?;
-                    self.copy_to_empty_cells(source, &[temp.address])?;
-                    self.move_to_empty_cells(temp.address, &[destination]);
-                } else {
-                    let temp = self.new_temp()?;
-                    self.copy_to_empty_cells(source, &[destination, temp.address])?;
-                    self.move_to_empty_cells(temp.address, &[source]);
+    pub fn n_times<F: Fn(&mut Self) -> CompileResult<()>>(
+        &mut self,
+        n: Value<'a>,
+        f: F,
+    ) -> CompileResult<()> {
+        match n {
+            Value::Literal(n) => {
+                for _ in 0..n {
+                    f(self)?;
                 }
             }
+            Value::Identifier(identifier) => match identifier {
+                Identifier::Named(name) => {
+                    let address = self.get_variable(name)?;
+                    let temp = self.new_temp()?;
+                    self.loop_while(address, |builder| {
+                        builder.dec_current();
+                        builder.move_pointer_to(temp.address);
+                        builder.inc_current();
+                        f(builder)?;
+                        Ok(())
+                    })?;
+                    self.loop_while(temp.address, |builder| {
+                        builder.dec_current();
+                        builder.move_pointer_to(address);
+                        builder.inc_current();
+                        Ok(())
+                    })?;
+                }
+                Identifier::Temp(temp) => {
+                    self.loop_while(temp.address, |builder| {
+                        builder.dec_current();
+                        f(builder)?;
+                        Ok(())
+                    })?;
+                }
+            },
         }
         Ok(())
     }
 
-    pub fn sub_from_current(&mut self, amount: u8) {
-        if amount > 0 {
-            self.program().push(BFTree::Add(255 - amount + 1));
+    pub fn add_assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
+        if let Value::Identifier(identifier) = &value {
+            let value_address = self.identifier_address(identifier)?;
+            if value_address == destination {
+                assert!(!identifier.is_temp(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
+                let temp = self.new_temp()?;
+                self.copy_on_top_of_cells(value, &[temp.address])?;
+                self.copy_on_top_of_cells(Value::temp(temp), &[value_address])?;
+                return Ok(());
+            }
         }
+        self.copy_on_top_of_cells(value, &[destination])
     }
 
-    pub fn zero_current(&mut self) {
-        self.program().append(bf!("[-]"));
+    pub fn sub_assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
+        if let Value::Identifier(identifier) = &value {
+            let value_address = self.identifier_address(identifier)?;
+            if value_address == destination {
+                assert!(!identifier.is_temp(), "Attempting to sub a temp from itself, which is not allowed as it's already consumed");
+                self.zero(destination);
+                return Ok(());
+            }
+        }
+        self.n_times(value, |builder| {
+            builder.move_pointer_to(destination);
+            builder.dec_current();
+            Ok(())
+        })
     }
 
     pub fn zero(&mut self, address: u16) {
         self.move_pointer_to(address);
-        self.zero_current();
-    }
-
-    pub fn set_current(&mut self, value: u8) {
-        self.zero_current();
-        self.add_to_current(value);
-    }
-
-    pub fn move_to_empty_cells(&mut self, source: u16, destinations: &[u16]) {
-        self.move_pointer_to(source);
-        self.loop_until_zero(|builder| {
-            builder.dec_current();
-            for destination in destinations {
-                builder.move_pointer_to(*destination);
-                builder.inc_current();
-            }
-            builder.move_pointer_to(source);
-            Ok(())
-        })
-        .unwrap();
-    }
-
-    pub fn copy_to_empty_cells(&mut self, source: u16, destinations: &[u16]) -> CompileResult<()> {
-        let temp = self.new_temp()?;
-        let mut destinations = destinations.to_vec();
-        destinations.push(temp.address);
-        self.move_to_empty_cells(source, &destinations);
-        self.move_to_empty_cells(temp.address, &[source]);
-        Ok(())
+        self.program().append(bf!("[-]"));
     }
 
     pub fn assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
         self.zero(destination);
-        match value {
-            Value::Literal(value) => self.add_to_current(value),
-            Value::Identifier(identifier) => {
-                let address = self.identifier_address(identifier)?;
-                self.copy_to_empty_cells(address, &[destination])?;
+        self.add_assign(destination, value)?;
+        Ok(())
+    }
+
+    pub fn copy_on_top_of_cells(
+        &mut self,
+        source: Value<'a>,
+        destinations: &[u16],
+    ) -> CompileResult<()> {
+        self.n_times(source, |builder| {
+            for destination in destinations {
+                builder.move_pointer_to(*destination);
+                builder.inc_current();
             }
-        }
+            Ok(())
+        })?;
         Ok(())
     }
 
@@ -320,11 +345,11 @@ impl<'a> BFProgramBuilder<'a> {
             for char in string.chars() {
                 let new_value = char as u8;
                 let offset = new_value.wrapping_sub(current_value);
-                self.add_to_current(offset);
+                self.add_assign(temp.address, Value::literal(offset))?;
                 self.write_current();
                 current_value = new_value;
             }
-            self.sub_from_current(current_value);
+            self.sub_assign(temp.address, Value::literal(current_value))?;
 
             Ok(())
         } else {
@@ -334,43 +359,77 @@ impl<'a> BFProgramBuilder<'a> {
 
     // Expressions
 
-    pub fn eval_expression(
-        &mut self,
-        destination: Option<u16>,
-        expression: &Expression<'a>,
-    ) -> CompileResult<Value<'a>> {
-        todo!()
-    }
-}
-
-pub fn compile(program: &Program) -> CompileResult<BFProgram> {
-    let mut builder = BFProgramBuilder::new();
-
-    for instruction in &program.instructions {
-        match instruction {
-            Instruction::Define { name, value } => {
-                builder.new_variable(name, *value)?;
-            }
-            Instruction::Assign { name, value } => {
-                let destination = builder.get_variable(name)?;
-                builder.assign(destination, *value)?;
-            }
-            Instruction::Write { name } => {
-                let address = builder.get_variable(name)?;
-                builder.move_pointer_to(address);
-                builder.write_current();
-            }
-            Instruction::Read { name } => {
-                let address = builder.get_variable(name)?;
-                builder.move_pointer_to(address);
-                builder.read_current();
-            }
-            Instruction::WriteString { string } => {
-                builder.write_string(string)?;
-            }
+    pub fn zero_if_temp(&mut self, value: &Value<'a>) {
+        if let Value::Identifier(Identifier::Temp(temp)) = value {
+            self.zero(temp.address);
         }
     }
 
+    pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value<'a>> {
+        match expression {
+            Expression::Value(value) => Ok(value),
+            Expression::Add(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                match (&a, &b) {
+                    (Value::Literal(a), Value::Literal(b)) => {
+                        Ok(Value::Literal(a.wrapping_add(*b)))
+                    }
+                    (_, _) => {
+                        let temp = self.new_temp()?;
+                        self.add_assign(temp.address, a)?;
+                        self.add_assign(temp.address, b)?;
+
+                        Ok(Value::temp(temp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Instruction compiling
+impl<'a> BFProgramBuilder<'a> {
+    pub fn compile(&mut self, program: Program<'a>) -> CompileResult<()> {
+        for instruction in program.instructions {
+            match instruction {
+                Instruction::Define { name, value } => {
+                    self.new_variable(name, value)?;
+                }
+                Instruction::Assign { name, value } => {
+                    let destination = self.get_variable(name)?;
+                    self.assign(destination, value)?;
+                }
+                Instruction::AddAssign { name, value } => {
+                    let destination = self.get_variable(name)?;
+                    self.add_assign(destination, value)?;
+                }
+                Instruction::SubAssign { name, value } => {
+                    let destination = self.get_variable(name)?;
+                    self.sub_assign(destination, value)?;
+                }
+                Instruction::Write { name } => {
+                    let address = self.get_variable(name)?;
+                    self.move_pointer_to(address);
+                    self.write_current();
+                }
+                Instruction::Read { name } => {
+                    let address = self.get_variable(name)?;
+                    self.move_pointer_to(address);
+                    self.read_current();
+                }
+                Instruction::WriteString { string } => {
+                    self.write_string(string)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+pub fn compile(program: Program) -> CompileResult<BFProgram> {
+    let mut builder = BFProgramBuilder::new();
+    builder.compile(program)?;
     builder.build()
 }
 
@@ -394,16 +453,27 @@ fn main() -> io::Result<()> {
                 name: "z",
                 value: Value::named("y"),
             },
+            Instruction::AddAssign {
+                name: "z",
+                value: Value::named("z"),
+            },
+            Instruction::SubAssign {
+                name: "z",
+                value: Value::Literal(0),
+            },
             Instruction::Write { name: "z" },
         ],
     };
-    let bf_program = compile(&program).expect("could not compile program");
+    let bf_program = compile(program).expect("could not compile program");
     println!("{}", bf_program.to_string());
     let mut interpreter = BFInterpreter::new();
     interpreter.run(&bf_program);
+    println!("\n{:?}", interpreter.tape()[..10].to_owned());
 
+    /*
     let cli = Cli::parse();
 
     cli.start()?;
+    */
     Ok(())
 }
