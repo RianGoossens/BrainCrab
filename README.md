@@ -10,12 +10,10 @@ Here are my upcoming tasks.
 - Refine repl, perhaps use crossterm or even ratatui?
 
 ### Braincrab Language TODO
-- Addition
-- Substraction
+- Scopes that clear variables
 - Multiplication
 - Division
 - Modulo
-- Loop Until 0 (While)
 - If/Else
 - Logical And
 - Logical Or

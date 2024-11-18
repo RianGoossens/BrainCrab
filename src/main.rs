@@ -46,13 +46,35 @@ pub enum Expression<'a> {
 }
 
 pub enum Instruction<'a> {
-    Define { name: &'a str, value: Value<'a> },
-    Assign { name: &'a str, value: Value<'a> },
-    AddAssign { name: &'a str, value: Value<'a> },
-    SubAssign { name: &'a str, value: Value<'a> },
-    Write { name: &'a str },
-    Read { name: &'a str },
-    WriteString { string: &'a str },
+    Define {
+        name: &'a str,
+        value: Value<'a>,
+    },
+    Assign {
+        name: &'a str,
+        value: Value<'a>,
+    },
+    AddAssign {
+        name: &'a str,
+        value: Value<'a>,
+    },
+    SubAssign {
+        name: &'a str,
+        value: Value<'a>,
+    },
+    Write {
+        name: &'a str,
+    },
+    Read {
+        name: &'a str,
+    },
+    WriteString {
+        string: &'a str,
+    },
+    While {
+        predicate: &'a str,
+        body: Vec<Instruction<'a>>,
+    },
 }
 
 pub struct Program<'a> {
@@ -390,8 +412,8 @@ impl<'a> BFProgramBuilder<'a> {
 
 /// Instruction compiling
 impl<'a> BFProgramBuilder<'a> {
-    pub fn compile(&mut self, program: Program<'a>) -> CompileResult<()> {
-        for instruction in program.instructions {
+    pub fn compile(&mut self, instructions: Vec<Instruction<'a>>) -> CompileResult<()> {
+        for instruction in instructions {
             match instruction {
                 Instruction::Define { name, value } => {
                     self.new_variable(name, value)?;
@@ -421,6 +443,13 @@ impl<'a> BFProgramBuilder<'a> {
                 Instruction::WriteString { string } => {
                     self.write_string(string)?;
                 }
+                Instruction::While { predicate, body } => {
+                    let address = self.get_variable(predicate)?;
+                    self.loop_while(address, |builder| {
+                        builder.compile(body)?;
+                        Ok(())
+                    })?;
+                }
             }
         }
         Ok(())
@@ -429,7 +458,7 @@ impl<'a> BFProgramBuilder<'a> {
 
 pub fn compile(program: Program) -> CompileResult<BFProgram> {
     let mut builder = BFProgramBuilder::new();
-    builder.compile(program)?;
+    builder.compile(program.instructions)?;
     builder.build()
 }
 
@@ -462,6 +491,20 @@ fn main() -> io::Result<()> {
                 value: Value::Literal(0),
             },
             Instruction::Write { name: "z" },
+            Instruction::Define {
+                name: "abc",
+                value: Value::literal(128),
+            },
+            Instruction::While {
+                predicate: "abc",
+                body: vec![
+                    Instruction::Write { name: "abc" },
+                    Instruction::SubAssign {
+                        name: "abc",
+                        value: Value::Literal(1),
+                    },
+                ],
+            },
         ],
     };
     let bf_program = compile(program).expect("could not compile program");
