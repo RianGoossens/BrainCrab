@@ -235,22 +235,33 @@ impl<'a> BFProgramBuilder<'a> {
         self.push_instruction(BFTree::Read);
     }
 
-    fn start_loop(&mut self) {
-        self.program_stack.push(BFProgram::new());
+    fn start_scope(&mut self) {
         self.scope_stack.push(vec![]);
     }
 
-    fn end_loop(&mut self, return_address: u16) -> CompileResult<()> {
+    fn end_scope(&mut self) -> CompileResult<()> {
+        let last_pointer_position = self.pointer;
+        let scope = self.scope_stack.pop().unwrap();
+        for variable_to_cleanup in scope {
+            let address = self.get_variable(variable_to_cleanup)?;
+            self.zero(address);
+            self.free_address(address);
+            self.variable_map.remove(variable_to_cleanup);
+        }
+        self.move_pointer_to(last_pointer_position);
+        Ok(())
+    }
+
+    fn start_loop(&mut self) {
+        self.program_stack.push(BFProgram::new());
+        self.start_scope();
+    }
+
+    fn end_loop(&mut self) -> CompileResult<()> {
         if self.program_stack.len() == 1 {
             Err(CompilerError::ClosingNonExistantLoop)
         } else {
-            let scope = self.scope_stack.pop().unwrap();
-            for variable_to_cleanup in scope {
-                let address = self.get_variable(variable_to_cleanup)?;
-                self.zero(address);
-                self.free_address(address);
-            }
-            self.move_pointer_to(return_address);
+            self.end_scope()?;
             let loop_program = self.program_stack.pop().unwrap();
             self.push_instruction(BFTree::Loop(loop_program.0));
             Ok(())
@@ -265,7 +276,8 @@ impl<'a> BFProgramBuilder<'a> {
         self.move_pointer_to(predicate);
         self.start_loop();
         f(self)?;
-        self.end_loop(predicate)?;
+        self.move_pointer_to(predicate);
+        self.end_loop()?;
         Ok(())
     }
 
@@ -511,34 +523,6 @@ fn main() -> io::Result<()> {
                     Instruction::SubAssign {
                         name: "abc",
                         value: Value::Literal(1),
-                    },
-                ],
-            },
-        ],
-    };
-    let program = Program {
-        instructions: vec![
-            Instruction::Define {
-                name: "x",
-                value: Value::literal(64),
-            },
-            Instruction::Define {
-                name: "newline",
-                value: Value::literal(b'\n'),
-            },
-            Instruction::While {
-                predicate: "x",
-                body: vec![
-                    Instruction::Define {
-                        name: "y",
-                        value: Value::literal(4),
-                    },
-                    Instruction::Write { name: "x" },
-                    Instruction::Write { name: "y" },
-                    Instruction::Write { name: "newline" },
-                    Instruction::SubAssign {
-                        name: "x",
-                        value: Value::named("y"),
                     },
                 ],
             },

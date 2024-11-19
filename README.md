@@ -10,7 +10,8 @@ Here are my upcoming tasks.
 - Refine repl, perhaps use crossterm or even ratatui?
 
 ### Braincrab Language TODO
-- Scopes (separate from loops)
+- Variable shadowing in scopes
+- Explicit scopes
 - Multiplication
 - Division
 - Modulo
