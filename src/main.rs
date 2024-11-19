@@ -105,7 +105,8 @@ impl Drop for Temp {
 pub type AddressPool = Rc<RefCell<Vec<u16>>>;
 
 pub struct BFProgramBuilder<'a> {
-    pub program_stack: Vec<(BFProgram, Vec<&'a str>)>,
+    pub program_stack: Vec<BFProgram>,
+    pub scope_stack: Vec<Vec<&'a str>>,
     pub variable_map: HashMap<&'a str, u16>,
     pub address_pool: AddressPool,
     pub pointer: u16,
@@ -118,7 +119,8 @@ impl<'a> Default for BFProgramBuilder<'a> {
             free_addresses.push(x);
         }
         Self {
-            program_stack: vec![(BFProgram::new(), vec![])],
+            program_stack: vec![BFProgram::new()],
+            scope_stack: vec![vec![]],
             variable_map: Default::default(),
             address_pool: Rc::new(RefCell::new(free_addresses)),
             pointer: 0,
@@ -134,7 +136,7 @@ impl<'a> BFProgramBuilder<'a> {
     }
 
     pub fn program(&mut self) -> &mut BFProgram {
-        &mut self.program_stack.last_mut().unwrap().0
+        self.program_stack.last_mut().unwrap()
     }
 
     pub fn push_instruction(&mut self, instruction: BFTree) {
@@ -145,7 +147,7 @@ impl<'a> BFProgramBuilder<'a> {
         if self.program_stack.len() != 1 {
             Err(CompilerError::UnclosedLoop)
         } else {
-            Ok(self.program_stack.pop().unwrap().0)
+            Ok(self.program_stack.pop().unwrap())
         }
     }
 
@@ -169,7 +171,7 @@ impl<'a> BFProgramBuilder<'a> {
         } else {
             let address = self.new_address()?;
             self.variable_map.insert(name, address);
-            self.program_stack.last_mut().unwrap().1.push(name);
+            self.scope_stack.last_mut().unwrap().push(name);
 
             self.n_times(value, |builder| {
                 builder.move_pointer_to(address);
@@ -234,32 +236,25 @@ impl<'a> BFProgramBuilder<'a> {
     }
 
     fn start_loop(&mut self) {
-        self.program_stack.push((BFProgram::new(), vec![]));
+        self.program_stack.push(BFProgram::new());
+        self.scope_stack.push(vec![]);
     }
 
-    fn end_loop(&mut self) -> CompileResult<()> {
+    fn end_loop(&mut self, return_address: u16) -> CompileResult<()> {
         if self.program_stack.len() == 1 {
             Err(CompilerError::ClosingNonExistantLoop)
         } else {
-            let (loop_program, _) = self.program_stack.pop().unwrap();
+            let scope = self.scope_stack.pop().unwrap();
+            for variable_to_cleanup in scope {
+                let address = self.get_variable(variable_to_cleanup)?;
+                self.zero(address);
+                self.free_address(address);
+            }
+            self.move_pointer_to(return_address);
+            let loop_program = self.program_stack.pop().unwrap();
             self.push_instruction(BFTree::Loop(loop_program.0));
             Ok(())
         }
-    }
-
-    pub fn free_all_variables_from_scope(&mut self) -> CompileResult<()> {
-        let (_, variable_stack) = self.program_stack.last().unwrap();
-        // TODO Since variable stacks are tied to loop program stacks we have an issue
-        // We need to clone variable_stack here. Which is suboptimal
-        // If the variable_stack is in it's own stack we can move it out instead.
-        // Since we still need the loop_program in the builder while cleaning up.
-        // Also better name for variable_stack please.
-        for variable_to_cleanup in variable_stack.clone() {
-            let address = self.get_variable(variable_to_cleanup)?;
-            self.zero(address);
-            self.free_address(address);
-        }
-        Ok(())
     }
 
     pub fn loop_while<F: FnOnce(&mut Self) -> CompileResult<()>>(
@@ -270,9 +265,7 @@ impl<'a> BFProgramBuilder<'a> {
         self.move_pointer_to(predicate);
         self.start_loop();
         f(self)?;
-        self.free_all_variables_from_scope()?;
-        self.move_pointer_to(predicate);
-        self.end_loop()?;
+        self.end_loop(predicate)?;
         Ok(())
     }
 
