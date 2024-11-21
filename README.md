@@ -15,8 +15,8 @@ Here are my upcoming tasks.
 - Multiplication
 - Division
 - Modulo
-- If/Else
 - Logical And
 - Logical Or
 - Logical Not
 - Expressions
+- Types? (u8, bool, structs, arrays...)

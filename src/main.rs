@@ -7,8 +7,10 @@ use bf_macros::bf;
 use clap::Parser;
 use cli::Cli;
 
+#[derive(PartialEq, Eq)]
 pub enum Identifier<'a> {
     Named(&'a str),
+    Borrow(u16),
     Temp(Temp),
 }
 
@@ -16,11 +18,15 @@ impl<'a> Identifier<'a> {
     pub fn is_temp(&self) -> bool {
         matches!(self, Identifier::Temp(_))
     }
+    pub fn is_borrowed(&self) -> bool {
+        matches!(self, Identifier::Borrow(_))
+    }
     pub fn is_named(&self) -> bool {
         matches!(self, Identifier::Named(_))
     }
 }
 
+#[derive(PartialEq, Eq)]
 pub enum Value<'a> {
     Literal(u8),
     Identifier(Identifier<'a>),
@@ -33,6 +39,10 @@ impl<'a> Value<'a> {
 
     pub fn named(name: &'a str) -> Self {
         Self::Identifier(Identifier::Named(name))
+    }
+
+    pub fn borrow(address: u16) -> Self {
+        Self::Identifier(Identifier::Borrow(address))
     }
 
     pub fn temp(temp: Temp) -> Self {
@@ -78,6 +88,11 @@ pub enum Instruction<'a> {
         predicate: &'a str,
         body: Vec<Instruction<'a>>,
     },
+    IfThenElse {
+        predicate: &'a str,
+        if_body: Vec<Instruction<'a>>,
+        else_body: Vec<Instruction<'a>>,
+    },
 }
 
 pub struct Program<'a> {
@@ -94,6 +109,7 @@ pub enum CompilerError {
     NonAsciiString(String),
 }
 
+#[derive(PartialEq, Eq)]
 pub struct Temp {
     pub address: u16,
     address_pool: AddressPool,
@@ -240,6 +256,7 @@ impl<'a> BFProgramBuilder<'a> {
     pub fn identifier_address(&self, identifier: &Identifier<'a>) -> CompileResult<u16> {
         match identifier {
             Identifier::Named(name) => self.get_variable(name),
+            Identifier::Borrow(address) => Ok(*address),
             Identifier::Temp(temp) => Ok(temp.address),
         }
     }
@@ -282,10 +299,7 @@ impl<'a> BFProgramBuilder<'a> {
         self.push_instruction(BFTree::Read);
     }
 
-    pub fn in_scope<F: FnOnce(&mut Self) -> CompileResult<()>>(
-        &mut self,
-        f: F,
-    ) -> CompileResult<()> {
+    pub fn scoped<F: FnOnce(&mut Self) -> CompileResult<()>>(&mut self, f: F) -> CompileResult<()> {
         self.variable_map.start_scope();
         f(self)?;
         let last_pointer_position = self.pointer;
@@ -303,9 +317,10 @@ impl<'a> BFProgramBuilder<'a> {
         predicate: u16,
         f: F,
     ) -> CompileResult<()> {
-        self.in_scope(|builder| {
-            builder.move_pointer_to(predicate);
-            builder.program_stack.push(BFProgram::new());
+        self.move_pointer_to(predicate);
+
+        self.program_stack.push(BFProgram::new());
+        self.scoped(|builder| {
             f(builder)?;
             builder.move_pointer_to(predicate);
             Ok(())
@@ -317,6 +332,33 @@ impl<'a> BFProgramBuilder<'a> {
     }
 
     // Utilities
+    pub fn if_then_else<
+        I: FnOnce(&mut Self) -> CompileResult<()>,
+        E: FnOnce(&mut Self) -> CompileResult<()>,
+    >(
+        &mut self,
+        predicate: u16,
+        if_case: I,
+        else_case: E,
+    ) -> CompileResult<()> {
+        let if_check = self.new_temp()?;
+        let else_check = self.new_temp()?;
+        self.add_assign(if_check.address, Value::borrow(predicate))?;
+        self.add_assign(else_check.address, Value::literal(1))?;
+        self.loop_while(if_check.address, |builder| {
+            if_case(builder)?;
+            builder.sub_assign(else_check.address, Value::literal(1))?;
+            builder.zero(if_check.address);
+            Ok(())
+        })?;
+        self.loop_while(else_check.address, |builder| {
+            else_case(builder)?;
+            builder.sub_assign(else_check.address, Value::literal(1))?;
+            Ok(())
+        })?;
+
+        Ok(())
+    }
 
     pub fn n_times<F: Fn(&mut Self) -> CompileResult<()>>(
         &mut self,
@@ -326,12 +368,19 @@ impl<'a> BFProgramBuilder<'a> {
         match n {
             Value::Literal(n) => {
                 for _ in 0..n {
-                    f(self)?;
+                    self.scoped(|builder| f(builder))?
                 }
             }
             Value::Identifier(identifier) => match identifier {
-                Identifier::Named(name) => {
-                    let address = self.get_variable(name)?;
+                Identifier::Temp(temp) => {
+                    self.loop_while(temp.address, |builder| {
+                        builder.dec_current();
+                        f(builder)?;
+                        Ok(())
+                    })?;
+                }
+                _ => {
+                    let address = self.identifier_address(&identifier)?;
                     let temp = self.new_temp()?;
                     self.loop_while(address, |builder| {
                         builder.dec_current();
@@ -344,13 +393,6 @@ impl<'a> BFProgramBuilder<'a> {
                         builder.dec_current();
                         builder.move_pointer_to(address);
                         builder.inc_current();
-                        Ok(())
-                    })?;
-                }
-                Identifier::Temp(temp) => {
-                    self.loop_while(temp.address, |builder| {
-                        builder.dec_current();
-                        f(builder)?;
                         Ok(())
                     })?;
                 }
@@ -443,25 +485,34 @@ impl<'a> BFProgramBuilder<'a> {
         }
     }
 
+    fn eval_add(&mut self, a: Value<'a>, b: Value<'a>) -> CompileResult<Value<'a>> {
+        match (a, b) {
+            (Value::Literal(a), Value::Literal(b)) => Ok(Value::Literal(a.wrapping_add(b))),
+            (Value::Identifier(Identifier::Temp(a)), b) => {
+                self.add_assign(a.address, b)?;
+                Ok(Value::temp(a))
+            }
+            (a, Value::Identifier(Identifier::Temp(b))) => {
+                self.add_assign(b.address, a)?;
+                Ok(Value::temp(b))
+            }
+            (a, b) => {
+                let temp = self.new_temp()?;
+                self.add_assign(temp.address, a)?;
+                self.add_assign(temp.address, b)?;
+
+                Ok(Value::temp(temp))
+            }
+        }
+    }
+
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value<'a>> {
         match expression {
             Expression::Value(value) => Ok(value),
             Expression::Add(a, b) => {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
-                match (&a, &b) {
-                    (Value::Literal(a), Value::Literal(b)) => {
-                        Ok(Value::Literal(a.wrapping_add(*b)))
-                    }
-                    //TODO you can add cases here for when a or b are temps, you can own them and reuse them.
-                    (_, _) => {
-                        let temp = self.new_temp()?;
-                        self.add_assign(temp.address, a)?;
-                        self.add_assign(temp.address, b)?;
-
-                        Ok(Value::temp(temp))
-                    }
-                }
+                self.eval_add(a, b)
             }
         }
     }
@@ -502,16 +553,22 @@ impl<'a> BFProgramBuilder<'a> {
                 }
                 Instruction::While { predicate, body } => {
                     let address = self.get_variable(predicate)?;
-                    self.loop_while(address, |builder| {
-                        builder.compile(body)?;
-                        Ok(())
-                    })?;
+                    self.loop_while(address, |builder| builder.compile(body))?;
                 }
                 Instruction::Scope { body } => {
-                    self.in_scope(|builder| {
-                        builder.compile(body)?;
-                        Ok(())
-                    })?;
+                    self.scoped(|builder| builder.compile(body))?;
+                }
+                Instruction::IfThenElse {
+                    predicate,
+                    if_body,
+                    else_body,
+                } => {
+                    let address = self.get_variable(predicate)?;
+                    self.if_then_else(
+                        address,
+                        |builder| builder.compile(if_body),
+                        |builder| builder.compile(else_body),
+                    )?;
                 }
             }
         }
@@ -578,6 +635,23 @@ fn main() -> io::Result<()> {
                 ],
             },
             Instruction::Write { name: "lol" },
+        ],
+    };
+    let program = Program {
+        instructions: vec![
+            Instruction::Define {
+                name: "x",
+                value: Value::Literal(1),
+            },
+            Instruction::WriteString {
+                string: "The detected value was ",
+            },
+            Instruction::IfThenElse {
+                predicate: "x",
+                if_body: vec![Instruction::WriteString { string: "true" }],
+                else_body: vec![Instruction::WriteString { string: "false" }],
+            },
+            Instruction::WriteString { string: "!\n" },
         ],
     };
     let bf_program = compile(program).expect("could not compile program");
