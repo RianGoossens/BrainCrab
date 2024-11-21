@@ -341,10 +341,10 @@ impl<'a> BFProgramBuilder<'a> {
         if_case: I,
         else_case: E,
     ) -> CompileResult<()> {
-        let if_check = self.new_temp()?;
         let else_check = self.new_temp()?;
-        self.add_assign(if_check.address, Value::borrow(predicate))?;
         self.add_assign(else_check.address, Value::literal(1))?;
+        let if_check = self.new_temp()?;
+        self.add_assign(if_check.address, Value::borrow(predicate))?;
         self.loop_while(if_check.address, |builder| {
             if_case(builder)?;
             builder.sub_assign(else_check.address, Value::literal(1))?;
