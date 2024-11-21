@@ -71,6 +71,9 @@ pub enum Instruction<'a> {
     WriteString {
         string: &'a str,
     },
+    Scope {
+        body: Vec<Instruction<'a>>,
+    },
     While {
         predicate: &'a str,
         body: Vec<Instruction<'a>>,
@@ -102,12 +105,58 @@ impl Drop for Temp {
     }
 }
 
+pub struct ScopedVariableMap<'a> {
+    pub variable_map_stack: Vec<HashMap<&'a str, u16>>,
+}
+
+impl<'a> Default for ScopedVariableMap<'a> {
+    fn default() -> Self {
+        Self {
+            variable_map_stack: vec![HashMap::new()],
+        }
+    }
+}
+
+impl<'a> ScopedVariableMap<'a> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn get_address(&self, name: &'a str) -> Option<u16> {
+        for variable_map in self.variable_map_stack.iter().rev() {
+            if let Some(result) = variable_map.get(name) {
+                return Some(*result);
+            }
+        }
+        None
+    }
+
+    pub fn defined_in_current_scope(&mut self, name: &'a str) -> bool {
+        self.variable_map_stack.last().unwrap().contains_key(name)
+    }
+
+    pub fn register(&mut self, name: &'a str, value: u16) {
+        self.variable_map_stack
+            .last_mut()
+            .unwrap()
+            .insert(name, value);
+    }
+
+    pub fn start_scope(&mut self) {
+        self.variable_map_stack.push(HashMap::new());
+    }
+
+    pub fn end_scope(&mut self) -> Vec<u16> {
+        let last_variable_map = self.variable_map_stack.pop().unwrap();
+        last_variable_map.into_values().collect()
+    }
+}
+
 pub type AddressPool = Rc<RefCell<Vec<u16>>>;
 
 pub struct BFProgramBuilder<'a> {
     pub program_stack: Vec<BFProgram>,
-    pub scope_stack: Vec<Vec<&'a str>>,
-    pub variable_map: HashMap<&'a str, u16>,
+    pub variable_map: ScopedVariableMap<'a>,
     pub address_pool: AddressPool,
     pub pointer: u16,
 }
@@ -120,7 +169,6 @@ impl<'a> Default for BFProgramBuilder<'a> {
         }
         Self {
             program_stack: vec![BFProgram::new()],
-            scope_stack: vec![vec![]],
             variable_map: Default::default(),
             address_pool: Rc::new(RefCell::new(free_addresses)),
             pointer: 0,
@@ -166,12 +214,11 @@ impl<'a> BFProgramBuilder<'a> {
     }
 
     pub fn new_variable(&mut self, name: &'a str, value: Value<'a>) -> CompileResult<u16> {
-        if self.variable_map.contains_key(name) {
+        if self.variable_map.defined_in_current_scope(name) {
             Err(CompilerError::AlreadyDefinedVariable(name.into()))
         } else {
             let address = self.new_address()?;
-            self.variable_map.insert(name, address);
-            self.scope_stack.last_mut().unwrap().push(name);
+            self.variable_map.register(name, address);
 
             self.n_times(value, |builder| {
                 builder.move_pointer_to(address);
@@ -183,8 +230,8 @@ impl<'a> BFProgramBuilder<'a> {
     }
 
     pub fn get_variable(&self, name: &'a str) -> CompileResult<u16> {
-        if let Some(address) = self.variable_map.get(name) {
-            Ok(*address)
+        if let Some(address) = self.variable_map.get_address(name) {
+            Ok(address)
         } else {
             Err(CompilerError::UndefinedVariable(name.into()))
         }
@@ -235,37 +282,20 @@ impl<'a> BFProgramBuilder<'a> {
         self.push_instruction(BFTree::Read);
     }
 
-    fn start_scope(&mut self) {
-        self.scope_stack.push(vec![]);
-    }
-
-    fn end_scope(&mut self) -> CompileResult<()> {
+    pub fn in_scope<F: FnOnce(&mut Self) -> CompileResult<()>>(
+        &mut self,
+        f: F,
+    ) -> CompileResult<()> {
+        self.variable_map.start_scope();
+        f(self)?;
         let last_pointer_position = self.pointer;
-        let scope = self.scope_stack.pop().unwrap();
-        for variable_to_cleanup in scope {
-            let address = self.get_variable(variable_to_cleanup)?;
+        let scope = self.variable_map.end_scope();
+        for address in scope {
             self.zero(address);
             self.free_address(address);
-            self.variable_map.remove(variable_to_cleanup);
         }
         self.move_pointer_to(last_pointer_position);
         Ok(())
-    }
-
-    fn start_loop(&mut self) {
-        self.program_stack.push(BFProgram::new());
-        self.start_scope();
-    }
-
-    fn end_loop(&mut self) -> CompileResult<()> {
-        if self.program_stack.len() == 1 {
-            Err(CompilerError::ClosingNonExistantLoop)
-        } else {
-            self.end_scope()?;
-            let loop_program = self.program_stack.pop().unwrap();
-            self.push_instruction(BFTree::Loop(loop_program.0));
-            Ok(())
-        }
     }
 
     pub fn loop_while<F: FnOnce(&mut Self) -> CompileResult<()>>(
@@ -273,11 +303,16 @@ impl<'a> BFProgramBuilder<'a> {
         predicate: u16,
         f: F,
     ) -> CompileResult<()> {
-        self.move_pointer_to(predicate);
-        self.start_loop();
-        f(self)?;
-        self.move_pointer_to(predicate);
-        self.end_loop()?;
+        self.in_scope(|builder| {
+            builder.move_pointer_to(predicate);
+            builder.program_stack.push(BFProgram::new());
+            f(builder)?;
+            builder.move_pointer_to(predicate);
+            Ok(())
+        })?;
+
+        let loop_program = self.program_stack.pop().unwrap();
+        self.push_instruction(BFTree::Loop(loop_program.0));
         Ok(())
     }
 
@@ -418,6 +453,7 @@ impl<'a> BFProgramBuilder<'a> {
                     (Value::Literal(a), Value::Literal(b)) => {
                         Ok(Value::Literal(a.wrapping_add(*b)))
                     }
+                    //TODO you can add cases here for when a or b are temps, you can own them and reuse them.
                     (_, _) => {
                         let temp = self.new_temp()?;
                         self.add_assign(temp.address, a)?;
@@ -471,6 +507,12 @@ impl<'a> BFProgramBuilder<'a> {
                         Ok(())
                     })?;
                 }
+                Instruction::Scope { body } => {
+                    self.in_scope(|builder| {
+                        builder.compile(body)?;
+                        Ok(())
+                    })?;
+                }
             }
         }
         Ok(())
@@ -516,16 +558,26 @@ fn main() -> io::Result<()> {
                 name: "abc",
                 value: Value::literal(128),
             },
+            Instruction::Define {
+                name: "lol",
+                value: Value::literal(b'X'),
+            },
             Instruction::While {
                 predicate: "abc",
                 body: vec![
+                    Instruction::Define {
+                        name: "lol",
+                        value: Value::literal(b'Y'),
+                    },
                     Instruction::Write { name: "abc" },
                     Instruction::SubAssign {
                         name: "abc",
                         value: Value::Literal(1),
                     },
+                    Instruction::Write { name: "lol" },
                 ],
             },
+            Instruction::Write { name: "lol" },
         ],
     };
     let bf_program = compile(program).expect("could not compile program");
