@@ -319,6 +319,11 @@ impl<'a> BrainCrabCompiler<'a> {
         Ok(())
     }
 
+    pub fn zero(&mut self, address: u16) {
+        self.move_pointer_to(address);
+        self.program().append(bf!("[-]"));
+    }
+
     pub fn add_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         if let Value::Variable(variable) = &value {
             let value_address = variable.address();
@@ -349,9 +354,36 @@ impl<'a> BrainCrabCompiler<'a> {
         })
     }
 
-    pub fn zero(&mut self, address: u16) {
-        self.move_pointer_to(address);
-        self.program().append(bf!("[-]"));
+    pub fn not_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+        self.if_then_else(
+            value,
+            |compiler| {
+                compiler.zero(destination);
+                Ok(())
+            },
+            |compiler| compiler.add_assign(destination, Value::constant(1)),
+        )
+    }
+    pub fn and_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+        self.if_then_else(
+            value,
+            |_| Ok(()),
+            |compiler| {
+                compiler.zero(destination);
+                Ok(())
+            },
+        )
+    }
+    pub fn or_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+        self.if_then_else(
+            Value::borrow(destination),
+            |_| Ok(()),
+            |compiler| {
+                compiler.if_then(value, |compiler| {
+                    compiler.add_assign(destination, Value::constant(1))
+                })
+            },
+        )
     }
 
     pub fn assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
@@ -442,6 +474,22 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
+    fn eval_not(&mut self, inner: Value) -> CompileResult<Value> {
+        match inner {
+            Value::Constant(value) => {
+                if value > 0 {
+                    Ok(Value::constant(0))
+                } else {
+                    Ok(Value::constant(1))
+                }
+            }
+            Value::Variable(variable) => {
+                self.not_assign(variable.address(), variable.borrow().into())?;
+                Ok(variable.into())
+            }
+        }
+    }
+
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
             Expression::Constant(value) => Ok(Value::constant(value)),
@@ -458,6 +506,10 @@ impl<'a> BrainCrabCompiler<'a> {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
                 self.eval_sub(a, b)
+            }
+            Expression::Not(inner) => {
+                let inner = self.eval_expression(*inner)?;
+                self.eval_not(inner)
             }
         }
     }

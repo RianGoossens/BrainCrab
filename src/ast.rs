@@ -4,6 +4,7 @@ pub enum Expression<'a> {
     Variable(&'a str),
     Add(Box<Expression<'a>>, Box<Expression<'a>>),
     Sub(Box<Expression<'a>>, Box<Expression<'a>>),
+    Not(Box<Expression<'a>>),
 }
 
 impl<'a> Expression<'a> {
@@ -18,6 +19,9 @@ impl<'a> Expression<'a> {
     }
     pub fn sub(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::Sub(Box::new(a), Box::new(b))
+    }
+    pub fn not(a: Expression<'a>) -> Self {
+        Self::Not(Box::new(a))
     }
 }
 

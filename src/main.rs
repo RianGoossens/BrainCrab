@@ -103,22 +103,22 @@ fn main() -> io::Result<()> {
                             Expression::variable("x"),
                             Expression::constant(5),
                         ),
-                        else_body: vec![Instruction::WriteString { string: "FIVE" }],
                         if_body: vec![Instruction::IfThenElse {
                             predicate: Expression::sub(
                                 Expression::variable("x"),
                                 Expression::constant(6),
                             ),
-                            else_body: vec![Instruction::WriteString { string: "SIX" }],
                             if_body: vec![Instruction::IfThenElse {
                                 predicate: Expression::sub(
                                     Expression::variable("x"),
                                     Expression::constant(7),
                                 ),
-                                else_body: vec![Instruction::WriteString { string: "7" }],
                                 if_body: vec![Instruction::WriteString { string: "OTHER" }],
+                                else_body: vec![Instruction::WriteString { string: "7" }],
                             }],
+                            else_body: vec![Instruction::WriteString { string: "SIX" }],
                         }],
+                        else_body: vec![Instruction::WriteString { string: "FIVE" }],
                     },
                     Instruction::SubAssign {
                         name: "x",
