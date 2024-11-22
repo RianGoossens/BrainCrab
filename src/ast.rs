@@ -1,7 +1,9 @@
+#[derive(Debug, Clone)]
 pub enum Expression<'a> {
     Constant(u8),
     Variable(&'a str),
     Add(Box<Expression<'a>>, Box<Expression<'a>>),
+    Sub(Box<Expression<'a>>, Box<Expression<'a>>),
 }
 
 impl<'a> Expression<'a> {
@@ -10,6 +12,12 @@ impl<'a> Expression<'a> {
     }
     pub fn variable(name: &'a str) -> Self {
         Self::Variable(name)
+    }
+    pub fn add(a: Expression<'a>, b: Expression<'a>) -> Self {
+        Self::Add(Box::new(a), Box::new(b))
+    }
+    pub fn sub(a: Expression<'a>, b: Expression<'a>) -> Self {
+        Self::Sub(Box::new(a), Box::new(b))
     }
 }
 

@@ -69,10 +69,7 @@ fn main() -> io::Result<()> {
         instructions: vec![
             Instruction::Define {
                 name: "x",
-                value: Expression::Add(
-                    Box::new(Expression::constant(1)),
-                    Box::new(Expression::constant(2)),
-                ),
+                value: Expression::add(Expression::constant(1), Expression::constant(2)),
             },
             Instruction::WriteString {
                 string: "The detected value was ",

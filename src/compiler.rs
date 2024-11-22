@@ -5,7 +5,7 @@ use bf_macros::bf;
 
 use crate::{
     ast::{Expression, Instruction, Program},
-    value::{Temp, Value, Variable},
+    value::{Owned, Value, Variable},
 };
 
 pub type AddressPool = Rc<RefCell<Vec<u16>>>;
@@ -15,7 +15,6 @@ pub enum CompilerError {
     UndefinedVariable(String),
     AlreadyDefinedVariable(String),
     NoFreeAddresses,
-    ClosingNonExistantLoop,
     UnclosedLoop,
     NonAsciiString(String),
 }
@@ -23,7 +22,7 @@ pub enum CompilerError {
 pub type CompileResult<A> = Result<A, CompilerError>;
 
 pub struct ScopedVariableMap<'a> {
-    pub variable_map_stack: Vec<HashMap<&'a str, u16>>,
+    pub variable_map_stack: Vec<HashMap<&'a str, Owned>>,
 }
 
 impl<'a> Default for ScopedVariableMap<'a> {
@@ -35,14 +34,10 @@ impl<'a> Default for ScopedVariableMap<'a> {
 }
 
 impl<'a> ScopedVariableMap<'a> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn get_address(&self, name: &'a str) -> Option<u16> {
+    pub fn borrow_variable(&self, name: &'a str) -> Option<Variable> {
         for variable_map in self.variable_map_stack.iter().rev() {
             if let Some(result) = variable_map.get(name) {
-                return Some(*result);
+                return Some(result.borrow());
             }
         }
         None
@@ -52,7 +47,7 @@ impl<'a> ScopedVariableMap<'a> {
         self.variable_map_stack.last().unwrap().contains_key(name)
     }
 
-    pub fn register(&mut self, name: &'a str, value: u16) {
+    pub fn register(&mut self, name: &'a str, value: Owned) {
         self.variable_map_stack
             .last_mut()
             .unwrap()
@@ -63,7 +58,7 @@ impl<'a> ScopedVariableMap<'a> {
         self.variable_map_stack.push(HashMap::new());
     }
 
-    pub fn end_scope(&mut self) -> Vec<u16> {
+    pub fn end_scope(&mut self) -> Vec<Owned> {
         let last_variable_map = self.variable_map_stack.pop().unwrap();
         last_variable_map.into_values().collect()
     }
@@ -114,24 +109,25 @@ impl<'a> BrainCrabCompiler<'a> {
 
     // Memory management
 
-    pub fn new_address(&mut self) -> CompileResult<u16> {
+    pub fn allocate(&mut self) -> CompileResult<Owned> {
         if let Some(address) = self.address_pool.borrow_mut().pop() {
-            Ok(address)
+            Ok(Owned {
+                address,
+                address_pool: self.address_pool.clone(),
+                dirty: false,
+            })
         } else {
             Err(CompilerError::NoFreeAddresses)
         }
     }
 
-    pub fn free_address(&mut self, address: u16) {
-        self.address_pool.borrow_mut().push(address);
-    }
-
-    pub fn new_variable(&mut self, name: &'a str, value: Value<'a>) -> CompileResult<u16> {
+    pub fn new_variable(&mut self, name: &'a str, value: Value) -> CompileResult<u16> {
         if self.variable_map.defined_in_current_scope(name) {
             Err(CompilerError::AlreadyDefinedVariable(name.into()))
         } else {
-            let address = self.new_address()?;
-            self.variable_map.register(name, address);
+            let owned = self.allocate()?;
+            let address = owned.address;
+            self.variable_map.register(name, owned);
 
             self.n_times(value, |compiler| {
                 compiler.move_pointer_to(address);
@@ -142,28 +138,21 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn get_variable(&self, name: &'a str) -> CompileResult<u16> {
-        if let Some(address) = self.variable_map.get_address(name) {
-            Ok(address)
+    pub fn get_variable(&self, name: &'a str) -> CompileResult<Variable> {
+        if let Some(variable) = self.variable_map.borrow_variable(name) {
+            Ok(variable)
         } else {
             Err(CompilerError::UndefinedVariable(name.into()))
         }
     }
 
-    pub fn get_address(&self, variable: &Variable<'a>) -> CompileResult<u16> {
-        match variable {
-            Variable::Named(name) => self.get_variable(name),
-            Variable::Borrow(address) => Ok(*address),
-            Variable::Temp(temp) => Ok(temp.address),
-        }
+    pub fn get_address(&self, name: &'a str) -> CompileResult<u16> {
+        let variable = self.get_variable(name)?;
+        Ok(variable.address())
     }
 
-    pub fn new_temp(&mut self) -> CompileResult<Temp> {
-        let address = self.new_address()?;
-        Ok(Temp {
-            address,
-            address_pool: self.address_pool.clone(),
-        })
+    pub fn new_temp(&mut self) -> CompileResult<Owned> {
+        self.allocate()
     }
 
     // Primitives
@@ -201,9 +190,8 @@ impl<'a> BrainCrabCompiler<'a> {
         f(self)?;
         let last_pointer_position = self.pointer;
         let scope = self.variable_map.end_scope();
-        for address in scope {
-            self.zero(address);
-            self.free_address(address);
+        for owned in scope {
+            self.zero(owned.address);
         }
         self.move_pointer_to(last_pointer_position);
         Ok(())
@@ -259,7 +247,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn n_times<F: Fn(&mut Self) -> CompileResult<()>>(
         &mut self,
-        n: Value<'a>,
+        n: Value,
         f: F,
     ) -> CompileResult<()> {
         match n {
@@ -269,7 +257,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 }
             }
             Value::Variable(variable) => match variable {
-                Variable::Temp(temp) => {
+                Variable::Owned(temp) => {
                     self.loop_while(temp.address, |compiler| {
                         compiler.dec_current();
                         f(compiler)?;
@@ -277,7 +265,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     })?;
                 }
                 _ => {
-                    let address = self.get_address(&variable)?;
+                    let address = variable.address();
                     let temp = self.new_temp()?;
                     self.loop_while(address, |compiler| {
                         compiler.dec_current();
@@ -298,25 +286,25 @@ impl<'a> BrainCrabCompiler<'a> {
         Ok(())
     }
 
-    pub fn add_assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
+    pub fn add_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         if let Value::Variable(variable) = &value {
-            let value_address = self.get_address(variable)?;
+            let value_address = variable.address();
             if value_address == destination {
-                assert!(!variable.is_temp(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
+                assert!(!variable.is_owned(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
                 let temp = self.new_temp()?;
                 self.copy_on_top_of_cells(value, &[temp.address])?;
-                self.copy_on_top_of_cells(Value::temp(temp), &[value_address])?;
+                self.copy_on_top_of_cells(Value::owned(temp), &[value_address])?;
                 return Ok(());
             }
         }
         self.copy_on_top_of_cells(value, &[destination])
     }
 
-    pub fn sub_assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
+    pub fn sub_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         if let Value::Variable(variable) = &value {
-            let value_address = self.get_address(variable)?;
+            let value_address = variable.address();
             if value_address == destination {
-                assert!(!variable.is_temp(), "Attempting to sub a temp from itself, which is not allowed as it's already consumed");
+                assert!(!variable.is_owned(), "Attempting to sub a temp from itself, which is not allowed as it's already consumed");
                 self.zero(destination);
                 return Ok(());
             }
@@ -333,7 +321,7 @@ impl<'a> BrainCrabCompiler<'a> {
         self.program().append(bf!("[-]"));
     }
 
-    pub fn assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
+    pub fn assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         self.zero(destination);
         self.add_assign(destination, value)?;
         Ok(())
@@ -341,7 +329,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn copy_on_top_of_cells(
         &mut self,
-        source: Value<'a>,
+        source: Value,
         destinations: &[u16],
     ) -> CompileResult<()> {
         self.n_times(source, |compiler| {
@@ -376,35 +364,60 @@ impl<'a> BrainCrabCompiler<'a> {
 
     // Expressions
 
-    fn eval_add(&mut self, a: Value<'a>, b: Value<'a>) -> CompileResult<Value<'a>> {
+    fn eval_add(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_add(b))),
-            (Value::Variable(Variable::Temp(a)), b) => {
+            (Value::Variable(Variable::Owned(a)), b) => {
                 self.add_assign(a.address, b)?;
-                Ok(Value::temp(a))
+                Ok(Value::owned(a))
             }
-            (a, Value::Variable(Variable::Temp(b))) => {
+            (a, Value::Variable(Variable::Owned(b))) => {
                 self.add_assign(b.address, a)?;
-                Ok(Value::temp(b))
+                Ok(Value::owned(b))
             }
             (a, b) => {
                 let temp = self.new_temp()?;
                 self.add_assign(temp.address, a)?;
                 self.add_assign(temp.address, b)?;
 
-                Ok(Value::temp(temp))
+                Ok(Value::owned(temp))
             }
         }
     }
 
-    pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value<'a>> {
+    fn eval_sub(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        match (a, b) {
+            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_sub(b))),
+            (Value::Variable(Variable::Owned(a)), b) => {
+                self.sub_assign(a.address, b)?;
+                Ok(Value::owned(a))
+            }
+            (a, b) => {
+                let temp = self.new_temp()?;
+                self.add_assign(temp.address, a)?;
+                self.sub_assign(temp.address, b)?;
+
+                Ok(Value::owned(temp))
+            }
+        }
+    }
+
+    pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
             Expression::Constant(value) => Ok(Value::constant(value)),
-            Expression::Variable(name) => Ok(Value::named(name)),
+            Expression::Variable(name) => {
+                let variable = self.get_variable(name)?;
+                Ok(variable.into())
+            }
             Expression::Add(a, b) => {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
                 self.eval_add(a, b)
+            }
+            Expression::Sub(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_sub(a, b)
             }
         }
     }
@@ -420,27 +433,27 @@ impl<'a> BrainCrabCompiler<'a> {
                     self.new_variable(name, value)?;
                 }
                 Instruction::Assign { name, value } => {
-                    let destination = self.get_variable(name)?;
+                    let destination = self.get_address(name)?;
                     let value = self.eval_expression(value)?;
                     self.assign(destination, value)?;
                 }
                 Instruction::AddAssign { name, value } => {
-                    let destination = self.get_variable(name)?;
+                    let destination = self.get_address(name)?;
                     let value = self.eval_expression(value)?;
                     self.add_assign(destination, value)?;
                 }
                 Instruction::SubAssign { name, value } => {
-                    let destination = self.get_variable(name)?;
+                    let destination = self.get_address(name)?;
                     let value = self.eval_expression(value)?;
                     self.sub_assign(destination, value)?;
                 }
                 Instruction::Write { name } => {
-                    let address = self.get_variable(name)?;
+                    let address = self.get_address(name)?;
                     self.move_pointer_to(address);
                     self.write_current();
                 }
                 Instruction::Read { name } => {
-                    let address = self.get_variable(name)?;
+                    let address = self.get_address(name)?;
                     self.move_pointer_to(address);
                     self.read_current();
                 }
@@ -448,7 +461,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     self.write_string(string)?;
                 }
                 Instruction::While { predicate, body } => {
-                    let address = self.get_variable(predicate)?;
+                    let address = self.get_address(predicate)?;
                     self.loop_while(address, |compiler| compiler.compile_instructions(body))?;
                 }
                 Instruction::Scope { body } => {
@@ -459,7 +472,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     if_body,
                     else_body,
                 } => {
-                    let address = self.get_variable(predicate)?;
+                    let address = self.get_address(predicate)?;
                     self.if_then_else(
                         address,
                         |compiler| compiler.compile_instructions(if_body),
