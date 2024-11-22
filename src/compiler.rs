@@ -216,6 +216,30 @@ impl<'a> BrainCrabCompiler<'a> {
         Ok(())
     }
 
+    pub fn if_then<I: FnOnce(&mut Self) -> CompileResult<()>>(
+        &mut self,
+        predicate: Value,
+        body: I,
+    ) -> CompileResult<()> {
+        match predicate {
+            Value::Constant(value) => {
+                if value > 0 {
+                    body(self)
+                } else {
+                    Ok(())
+                }
+            }
+            Value::Variable(variable) => {
+                let if_check = self.new_temp()?;
+                self.add_assign(if_check.address, variable.into())?;
+                self.loop_while(if_check.address, |compiler| {
+                    body(compiler)?;
+                    compiler.zero(if_check.address);
+                    Ok(())
+                })
+            }
+        }
+    }
     // Utilities
     pub fn if_then_else<
         I: FnOnce(&mut Self) -> CompileResult<()>,
@@ -525,11 +549,15 @@ impl<'a> BrainCrabCompiler<'a> {
                     else_body,
                 } => {
                     let predicate = self.eval_expression(predicate)?;
-                    self.if_then_else(
-                        predicate,
-                        |compiler| compiler.compile_instructions(if_body),
-                        |compiler| compiler.compile_instructions(else_body),
-                    )?;
+                    if else_body.is_empty() {
+                        self.if_then(predicate, |compiler| compiler.compile_instructions(if_body))?;
+                    } else {
+                        self.if_then_else(
+                            predicate,
+                            |compiler| compiler.compile_instructions(if_body),
+                            |compiler| compiler.compile_instructions(else_body),
+                        )?;
+                    }
                 }
             }
         }
