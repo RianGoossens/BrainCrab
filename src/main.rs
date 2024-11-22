@@ -99,9 +99,9 @@ fn main() -> io::Result<()> {
                         string: "The detected value was ",
                     },
                     Instruction::IfThenElse {
-                        predicate: Expression::sub(
-                            Expression::variable("x"),
-                            Expression::constant(5),
+                        predicate: Expression::and(
+                            Expression::sub(Expression::variable("x"), Expression::constant(5)),
+                            Expression::sub(Expression::variable("x"), Expression::constant(8)),
                         ),
                         if_body: vec![Instruction::IfThenElse {
                             predicate: Expression::sub(
@@ -118,7 +118,9 @@ fn main() -> io::Result<()> {
                             }],
                             else_body: vec![Instruction::WriteString { string: "SIX" }],
                         }],
-                        else_body: vec![Instruction::WriteString { string: "FIVE" }],
+                        else_body: vec![Instruction::WriteString {
+                            string: "FIVE OR EIGHT",
+                        }],
                     },
                     Instruction::SubAssign {
                         name: "x",

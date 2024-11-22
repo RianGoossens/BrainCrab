@@ -490,6 +490,52 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
+    fn eval_and(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        match (a, b) {
+            (Value::Constant(a), Value::Constant(b)) => {
+                Ok(Value::Constant(((a != 0) && (b != 0)) as u8))
+            }
+            (Value::Variable(Variable::Owned(a)), b) => {
+                self.and_assign(a.address, b)?;
+                Ok(Value::owned(a))
+            }
+            (a, Value::Variable(Variable::Owned(b))) => {
+                self.and_assign(b.address, a)?;
+                Ok(Value::owned(b))
+            }
+            (a, b) => {
+                let temp = self.new_temp()?;
+                self.add_assign(temp.address, a)?;
+                self.and_assign(temp.address, b)?;
+
+                Ok(Value::owned(temp))
+            }
+        }
+    }
+
+    fn eval_or(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        match (a, b) {
+            (Value::Constant(a), Value::Constant(b)) => {
+                Ok(Value::Constant(((a != 0) || (b != 0)) as u8))
+            }
+            (Value::Variable(Variable::Owned(a)), b) => {
+                self.or_assign(a.address, b)?;
+                Ok(Value::owned(a))
+            }
+            (a, Value::Variable(Variable::Owned(b))) => {
+                self.or_assign(b.address, a)?;
+                Ok(Value::owned(b))
+            }
+            (a, b) => {
+                let temp = self.new_temp()?;
+                self.add_assign(temp.address, a)?;
+                self.or_assign(temp.address, b)?;
+
+                Ok(Value::owned(temp))
+            }
+        }
+    }
+
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
             Expression::Constant(value) => Ok(Value::constant(value)),
@@ -510,6 +556,16 @@ impl<'a> BrainCrabCompiler<'a> {
             Expression::Not(inner) => {
                 let inner = self.eval_expression(*inner)?;
                 self.eval_not(inner)
+            }
+            Expression::And(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_and(a, b)
+            }
+            Expression::Or(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_or(a, b)
             }
         }
     }
