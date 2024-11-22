@@ -43,7 +43,7 @@ impl Variable {
     }
 }
 
-impl<'a> From<Owned> for Variable {
+impl From<Owned> for Variable {
     fn from(value: Owned) -> Self {
         Variable::Owned(value)
     }

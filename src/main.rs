@@ -48,7 +48,7 @@ fn main() -> io::Result<()> {
                 value: Expression::constant(b'X'),
             },
             Instruction::While {
-                predicate: "abc",
+                predicate: Expression::variable("abc"),
                 body: vec![
                     Instruction::Define {
                         name: "lol",
@@ -93,7 +93,7 @@ fn main() -> io::Result<()> {
                 value: Expression::constant(10),
             },
             Instruction::While {
-                predicate: "x",
+                predicate: Expression::sub(Expression::variable("x"), Expression::constant(4)),
                 body: vec![
                     Instruction::WriteString {
                         string: "The detected value was ",

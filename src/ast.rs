@@ -51,7 +51,7 @@ pub enum Instruction<'a> {
         body: Vec<Instruction<'a>>,
     },
     While {
-        predicate: &'a str,
+        predicate: Expression<'a>,
         body: Vec<Instruction<'a>>,
     },
     IfThenElse {

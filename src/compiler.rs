@@ -437,6 +437,41 @@ impl<'a> BrainCrabCompiler<'a> {
             }
         }
     }
+
+    pub fn loop_while_expression<F: FnOnce(&mut Self) -> CompileResult<()>>(
+        &mut self,
+        predicate: Expression<'a>,
+        body: F,
+    ) -> CompileResult<()> {
+        match predicate {
+            Expression::Constant(predicate) => {
+                if predicate > 0 {
+                    // Infinite loop
+                    let temp = self.new_temp()?;
+                    self.add_assign(temp.address, Value::constant(1))?;
+                    self.loop_while(temp.address, body)
+                } else {
+                    // Nothing to do here
+                    Ok(())
+                }
+            }
+            Expression::Variable(variable) => {
+                let predicate = self.get_address(variable)?;
+                self.loop_while(predicate, body)
+            }
+            _ => {
+                let temp = self.new_temp()?;
+                let predicate_value = self.eval_expression(predicate.clone())?;
+                self.add_assign(temp.address, predicate_value)?;
+                self.loop_while(temp.address, |compiler| {
+                    body(compiler)?;
+                    let predicate_value = compiler.eval_expression(predicate)?;
+                    compiler.assign(temp.address, predicate_value)?;
+                    Ok(())
+                })
+            }
+        }
+    }
 }
 
 /// Instruction compiling
@@ -477,8 +512,9 @@ impl<'a> BrainCrabCompiler<'a> {
                     self.write_string(string)?;
                 }
                 Instruction::While { predicate, body } => {
-                    let address = self.get_address(predicate)?;
-                    self.loop_while(address, |compiler| compiler.compile_instructions(body))?;
+                    self.loop_while_expression(predicate, |compiler| {
+                        compiler.compile_instructions(body)
+                    })?;
                 }
                 Instruction::Scope { body } => {
                     self.scoped(|compiler| compiler.compile_instructions(body))?;
