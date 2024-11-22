@@ -71,6 +71,10 @@ fn main() -> io::Result<()> {
                 name: "x",
                 value: Expression::add(Expression::constant(1), Expression::constant(2)),
             },
+            Instruction::Assign {
+                name: "x",
+                value: Expression::add(Expression::variable("x"), Expression::variable("x")),
+            },
             Instruction::WriteString {
                 string: "The detected value was ",
             },

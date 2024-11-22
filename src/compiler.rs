@@ -322,6 +322,13 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+        if let Value::Variable(variable) = &value {
+            let value_address = variable.address();
+            if value_address == destination {
+                // assigning to self is a no-op
+                return Ok(());
+            }
+        }
         self.zero(destination);
         self.add_assign(destination, value)?;
         Ok(())
