@@ -1,26 +1,34 @@
-use crate::value::Value;
-
 pub enum Expression<'a> {
-    Value(Value<'a>),
+    Constant(u8),
+    Variable(&'a str),
     Add(Box<Expression<'a>>, Box<Expression<'a>>),
+}
+
+impl<'a> Expression<'a> {
+    pub fn constant(value: u8) -> Self {
+        Self::Constant(value)
+    }
+    pub fn variable(name: &'a str) -> Self {
+        Self::Variable(name)
+    }
 }
 
 pub enum Instruction<'a> {
     Define {
         name: &'a str,
-        value: Value<'a>,
+        value: Expression<'a>,
     },
     Assign {
         name: &'a str,
-        value: Value<'a>,
+        value: Expression<'a>,
     },
     AddAssign {
         name: &'a str,
-        value: Value<'a>,
+        value: Expression<'a>,
     },
     SubAssign {
         name: &'a str,
-        value: Value<'a>,
+        value: Expression<'a>,
     },
     Write {
         name: &'a str,

@@ -1,14 +1,10 @@
 mod cli;
 
-use std::{cell::RefCell, collections::HashMap, io, rc::Rc};
+use std::io;
 
 use ast::{Expression, Instruction, Program};
-use bf_core::{BFInterpreter, BFProgram, BFTree};
-use bf_macros::bf;
-use clap::Parser;
-use cli::Cli;
+use bf_core::BFInterpreter;
 use compiler::BrainCrabCompiler;
-use value::{Temp, Value, Variable};
 
 mod ast;
 mod compiler;
@@ -22,46 +18,46 @@ fn main() -> io::Result<()> {
             },
             Instruction::Define {
                 name: "x",
-                value: Value::constant(b'H'),
+                value: Expression::constant(b'H'),
             },
             Instruction::Define {
                 name: "y",
-                value: Value::constant(b'i'),
+                value: Expression::constant(b'i'),
             },
             Instruction::Write { name: "x" },
             Instruction::Write { name: "y" },
             Instruction::Define {
                 name: "z",
-                value: Value::named("y"),
+                value: Expression::variable("y"),
             },
             Instruction::AddAssign {
                 name: "z",
-                value: Value::named("z"),
+                value: Expression::variable("z"),
             },
             Instruction::SubAssign {
                 name: "z",
-                value: Value::Constant(0),
+                value: Expression::constant(0),
             },
             Instruction::Write { name: "z" },
             Instruction::Define {
                 name: "abc",
-                value: Value::constant(128),
+                value: Expression::constant(128),
             },
             Instruction::Define {
                 name: "lol",
-                value: Value::constant(b'X'),
+                value: Expression::constant(b'X'),
             },
             Instruction::While {
                 predicate: "abc",
                 body: vec![
                     Instruction::Define {
                         name: "lol",
-                        value: Value::constant(b'Y'),
+                        value: Expression::constant(b'Y'),
                     },
                     Instruction::Write { name: "abc" },
                     Instruction::SubAssign {
                         name: "abc",
-                        value: Value::Constant(1),
+                        value: Expression::constant(1),
                     },
                     Instruction::Write { name: "lol" },
                 ],
@@ -73,7 +69,10 @@ fn main() -> io::Result<()> {
         instructions: vec![
             Instruction::Define {
                 name: "x",
-                value: Value::Constant(1),
+                value: Expression::Add(
+                    Box::new(Expression::constant(1)),
+                    Box::new(Expression::constant(2)),
+                ),
             },
             Instruction::WriteString {
                 string: "The detected value was ",

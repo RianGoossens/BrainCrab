@@ -376,12 +376,6 @@ impl<'a> BrainCrabCompiler<'a> {
 
     // Expressions
 
-    pub fn zero_if_temp(&mut self, value: &Value<'a>) {
-        if let Value::Variable(Variable::Temp(temp)) = value {
-            self.zero(temp.address);
-        }
-    }
-
     fn eval_add(&mut self, a: Value<'a>, b: Value<'a>) -> CompileResult<Value<'a>> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_add(b))),
@@ -405,7 +399,8 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value<'a>> {
         match expression {
-            Expression::Value(value) => Ok(value),
+            Expression::Constant(value) => Ok(Value::constant(value)),
+            Expression::Variable(name) => Ok(Value::named(name)),
             Expression::Add(a, b) => {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
@@ -421,18 +416,22 @@ impl<'a> BrainCrabCompiler<'a> {
         for instruction in instructions {
             match instruction {
                 Instruction::Define { name, value } => {
+                    let value = self.eval_expression(value)?;
                     self.new_variable(name, value)?;
                 }
                 Instruction::Assign { name, value } => {
                     let destination = self.get_variable(name)?;
+                    let value = self.eval_expression(value)?;
                     self.assign(destination, value)?;
                 }
                 Instruction::AddAssign { name, value } => {
                     let destination = self.get_variable(name)?;
+                    let value = self.eval_expression(value)?;
                     self.add_assign(destination, value)?;
                 }
                 Instruction::SubAssign { name, value } => {
                     let destination = self.get_variable(name)?;
+                    let value = self.eval_expression(value)?;
                     self.sub_assign(destination, value)?;
                 }
                 Instruction::Write { name } => {
