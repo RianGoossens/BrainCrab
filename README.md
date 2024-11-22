@@ -14,7 +14,4 @@ Here are my upcoming tasks.
 - Division
 - Modulo
 - eq, neq, lt, gt, le, ge
-- Logical And
-- Logical Or
-- Logical Not
 - Types? (u8, bool, structs, arrays...)
