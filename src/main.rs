@@ -8,45 +8,45 @@ use clap::Parser;
 use cli::Cli;
 
 #[derive(PartialEq, Eq)]
-pub enum Identifier<'a> {
+pub enum Variable<'a> {
     Named(&'a str),
     Borrow(u16),
     Temp(Temp),
 }
 
-impl<'a> Identifier<'a> {
+impl<'a> Variable<'a> {
     pub fn is_temp(&self) -> bool {
-        matches!(self, Identifier::Temp(_))
+        matches!(self, Variable::Temp(_))
     }
     pub fn is_borrowed(&self) -> bool {
-        matches!(self, Identifier::Borrow(_))
+        matches!(self, Variable::Borrow(_))
     }
     pub fn is_named(&self) -> bool {
-        matches!(self, Identifier::Named(_))
+        matches!(self, Variable::Named(_))
     }
 }
 
 #[derive(PartialEq, Eq)]
 pub enum Value<'a> {
-    Literal(u8),
-    Identifier(Identifier<'a>),
+    Constant(u8),
+    Variable(Variable<'a>),
 }
 
 impl<'a> Value<'a> {
-    pub fn literal(value: u8) -> Self {
-        Self::Literal(value)
+    pub fn constant(value: u8) -> Self {
+        Self::Constant(value)
     }
 
     pub fn named(name: &'a str) -> Self {
-        Self::Identifier(Identifier::Named(name))
+        Self::Variable(Variable::Named(name))
     }
 
     pub fn borrow(address: u16) -> Self {
-        Self::Identifier(Identifier::Borrow(address))
+        Self::Variable(Variable::Borrow(address))
     }
 
     pub fn temp(temp: Temp) -> Self {
-        Self::Identifier(Identifier::Temp(temp))
+        Self::Variable(Variable::Temp(temp))
     }
 }
 
@@ -253,11 +253,11 @@ impl<'a> BFProgramBuilder<'a> {
         }
     }
 
-    pub fn identifier_address(&self, identifier: &Identifier<'a>) -> CompileResult<u16> {
-        match identifier {
-            Identifier::Named(name) => self.get_variable(name),
-            Identifier::Borrow(address) => Ok(*address),
-            Identifier::Temp(temp) => Ok(temp.address),
+    pub fn get_address(&self, variable: &Variable<'a>) -> CompileResult<u16> {
+        match variable {
+            Variable::Named(name) => self.get_variable(name),
+            Variable::Borrow(address) => Ok(*address),
+            Variable::Temp(temp) => Ok(temp.address),
         }
     }
 
@@ -342,18 +342,18 @@ impl<'a> BFProgramBuilder<'a> {
         else_case: E,
     ) -> CompileResult<()> {
         let else_check = self.new_temp()?;
-        self.add_assign(else_check.address, Value::literal(1))?;
+        self.add_assign(else_check.address, Value::constant(1))?;
         let if_check = self.new_temp()?;
         self.add_assign(if_check.address, Value::borrow(predicate))?;
         self.loop_while(if_check.address, |builder| {
             if_case(builder)?;
-            builder.sub_assign(else_check.address, Value::literal(1))?;
+            builder.sub_assign(else_check.address, Value::constant(1))?;
             builder.zero(if_check.address);
             Ok(())
         })?;
         self.loop_while(else_check.address, |builder| {
             else_case(builder)?;
-            builder.sub_assign(else_check.address, Value::literal(1))?;
+            builder.sub_assign(else_check.address, Value::constant(1))?;
             Ok(())
         })?;
 
@@ -366,13 +366,13 @@ impl<'a> BFProgramBuilder<'a> {
         f: F,
     ) -> CompileResult<()> {
         match n {
-            Value::Literal(n) => {
+            Value::Constant(n) => {
                 for _ in 0..n {
                     self.scoped(|builder| f(builder))?
                 }
             }
-            Value::Identifier(identifier) => match identifier {
-                Identifier::Temp(temp) => {
+            Value::Variable(variable) => match variable {
+                Variable::Temp(temp) => {
                     self.loop_while(temp.address, |builder| {
                         builder.dec_current();
                         f(builder)?;
@@ -380,7 +380,7 @@ impl<'a> BFProgramBuilder<'a> {
                     })?;
                 }
                 _ => {
-                    let address = self.identifier_address(&identifier)?;
+                    let address = self.get_address(&variable)?;
                     let temp = self.new_temp()?;
                     self.loop_while(address, |builder| {
                         builder.dec_current();
@@ -402,10 +402,10 @@ impl<'a> BFProgramBuilder<'a> {
     }
 
     pub fn add_assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
-        if let Value::Identifier(identifier) = &value {
-            let value_address = self.identifier_address(identifier)?;
+        if let Value::Variable(variable) = &value {
+            let value_address = self.get_address(variable)?;
             if value_address == destination {
-                assert!(!identifier.is_temp(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
+                assert!(!variable.is_temp(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
                 let temp = self.new_temp()?;
                 self.copy_on_top_of_cells(value, &[temp.address])?;
                 self.copy_on_top_of_cells(Value::temp(temp), &[value_address])?;
@@ -416,10 +416,10 @@ impl<'a> BFProgramBuilder<'a> {
     }
 
     pub fn sub_assign(&mut self, destination: u16, value: Value<'a>) -> CompileResult<()> {
-        if let Value::Identifier(identifier) = &value {
-            let value_address = self.identifier_address(identifier)?;
+        if let Value::Variable(variable) = &value {
+            let value_address = self.get_address(variable)?;
             if value_address == destination {
-                assert!(!identifier.is_temp(), "Attempting to sub a temp from itself, which is not allowed as it's already consumed");
+                assert!(!variable.is_temp(), "Attempting to sub a temp from itself, which is not allowed as it's already consumed");
                 self.zero(destination);
                 return Ok(());
             }
@@ -465,11 +465,11 @@ impl<'a> BFProgramBuilder<'a> {
             for char in string.chars() {
                 let new_value = char as u8;
                 let offset = new_value.wrapping_sub(current_value);
-                self.add_assign(temp.address, Value::literal(offset))?;
+                self.add_assign(temp.address, Value::constant(offset))?;
                 self.write_current();
                 current_value = new_value;
             }
-            self.sub_assign(temp.address, Value::literal(current_value))?;
+            self.sub_assign(temp.address, Value::constant(current_value))?;
 
             Ok(())
         } else {
@@ -480,19 +480,19 @@ impl<'a> BFProgramBuilder<'a> {
     // Expressions
 
     pub fn zero_if_temp(&mut self, value: &Value<'a>) {
-        if let Value::Identifier(Identifier::Temp(temp)) = value {
+        if let Value::Variable(Variable::Temp(temp)) = value {
             self.zero(temp.address);
         }
     }
 
     fn eval_add(&mut self, a: Value<'a>, b: Value<'a>) -> CompileResult<Value<'a>> {
         match (a, b) {
-            (Value::Literal(a), Value::Literal(b)) => Ok(Value::Literal(a.wrapping_add(b))),
-            (Value::Identifier(Identifier::Temp(a)), b) => {
+            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_add(b))),
+            (Value::Variable(Variable::Temp(a)), b) => {
                 self.add_assign(a.address, b)?;
                 Ok(Value::temp(a))
             }
-            (a, Value::Identifier(Identifier::Temp(b))) => {
+            (a, Value::Variable(Variable::Temp(b))) => {
                 self.add_assign(b.address, a)?;
                 Ok(Value::temp(b))
             }
@@ -590,11 +590,11 @@ fn main() -> io::Result<()> {
             },
             Instruction::Define {
                 name: "x",
-                value: Value::literal(b'H'),
+                value: Value::constant(b'H'),
             },
             Instruction::Define {
                 name: "y",
-                value: Value::literal(b'i'),
+                value: Value::constant(b'i'),
             },
             Instruction::Write { name: "x" },
             Instruction::Write { name: "y" },
@@ -608,28 +608,28 @@ fn main() -> io::Result<()> {
             },
             Instruction::SubAssign {
                 name: "z",
-                value: Value::Literal(0),
+                value: Value::Constant(0),
             },
             Instruction::Write { name: "z" },
             Instruction::Define {
                 name: "abc",
-                value: Value::literal(128),
+                value: Value::constant(128),
             },
             Instruction::Define {
                 name: "lol",
-                value: Value::literal(b'X'),
+                value: Value::constant(b'X'),
             },
             Instruction::While {
                 predicate: "abc",
                 body: vec![
                     Instruction::Define {
                         name: "lol",
-                        value: Value::literal(b'Y'),
+                        value: Value::constant(b'Y'),
                     },
                     Instruction::Write { name: "abc" },
                     Instruction::SubAssign {
                         name: "abc",
-                        value: Value::Literal(1),
+                        value: Value::Constant(1),
                     },
                     Instruction::Write { name: "lol" },
                 ],
@@ -641,7 +641,7 @@ fn main() -> io::Result<()> {
         instructions: vec![
             Instruction::Define {
                 name: "x",
-                value: Value::Literal(1),
+                value: Value::Constant(1),
             },
             Instruction::WriteString {
                 string: "The detected value was ",
