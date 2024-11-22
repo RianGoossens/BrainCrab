@@ -11,7 +11,7 @@ mod compiler;
 mod value;
 
 fn main() -> io::Result<()> {
-    let program = Program {
+    let _program = Program {
         instructions: vec![
             Instruction::WriteString {
                 string: "Hello World!\n",
@@ -65,7 +65,7 @@ fn main() -> io::Result<()> {
             Instruction::Write { name: "lol" },
         ],
     };
-    let program = Program {
+    let _program = Program {
         instructions: vec![
             Instruction::Define {
                 name: "x",
@@ -79,11 +79,54 @@ fn main() -> io::Result<()> {
                 string: "The detected value was ",
             },
             Instruction::IfThenElse {
-                predicate: "x",
+                predicate: Expression::variable("x"),
                 if_body: vec![Instruction::WriteString { string: "true" }],
                 else_body: vec![Instruction::WriteString { string: "false" }],
             },
             Instruction::WriteString { string: "!\n" },
+        ],
+    };
+    let program = Program {
+        instructions: vec![
+            Instruction::Define {
+                name: "x",
+                value: Expression::constant(10),
+            },
+            Instruction::While {
+                predicate: "x",
+                body: vec![
+                    Instruction::WriteString {
+                        string: "The detected value was ",
+                    },
+                    Instruction::IfThenElse {
+                        predicate: Expression::sub(
+                            Expression::variable("x"),
+                            Expression::constant(5),
+                        ),
+                        else_body: vec![Instruction::WriteString { string: "FIVE" }],
+                        if_body: vec![Instruction::IfThenElse {
+                            predicate: Expression::sub(
+                                Expression::variable("x"),
+                                Expression::constant(6),
+                            ),
+                            else_body: vec![Instruction::WriteString { string: "SIX" }],
+                            if_body: vec![Instruction::IfThenElse {
+                                predicate: Expression::sub(
+                                    Expression::variable("x"),
+                                    Expression::constant(7),
+                                ),
+                                else_body: vec![Instruction::WriteString { string: "7" }],
+                                if_body: vec![Instruction::WriteString { string: "OTHER" }],
+                            }],
+                        }],
+                    },
+                    Instruction::SubAssign {
+                        name: "x",
+                        value: Expression::constant(1),
+                    },
+                    Instruction::WriteString { string: "!\n" },
+                ],
+            },
         ],
     };
     let bf_program = BrainCrabCompiler::compile(program).expect("could not compile program");

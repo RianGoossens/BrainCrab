@@ -222,27 +222,36 @@ impl<'a> BrainCrabCompiler<'a> {
         E: FnOnce(&mut Self) -> CompileResult<()>,
     >(
         &mut self,
-        predicate: u16,
+        predicate: Value,
         if_case: I,
         else_case: E,
     ) -> CompileResult<()> {
-        let else_check = self.new_temp()?;
-        self.add_assign(else_check.address, Value::constant(1))?;
-        let if_check = self.new_temp()?;
-        self.add_assign(if_check.address, Value::borrow(predicate))?;
-        self.loop_while(if_check.address, |compiler| {
-            if_case(compiler)?;
-            compiler.sub_assign(else_check.address, Value::constant(1))?;
-            compiler.zero(if_check.address);
-            Ok(())
-        })?;
-        self.loop_while(else_check.address, |compiler| {
-            else_case(compiler)?;
-            compiler.sub_assign(else_check.address, Value::constant(1))?;
-            Ok(())
-        })?;
-
-        Ok(())
+        match predicate {
+            Value::Constant(value) => {
+                if value > 0 {
+                    if_case(self)
+                } else {
+                    else_case(self)
+                }
+            }
+            Value::Variable(variable) => {
+                let else_check = self.new_temp()?;
+                self.add_assign(else_check.address, Value::constant(1))?;
+                let if_check = self.new_temp()?;
+                self.add_assign(if_check.address, variable.into())?;
+                self.loop_while(if_check.address, |compiler| {
+                    if_case(compiler)?;
+                    compiler.sub_assign(else_check.address, Value::constant(1))?;
+                    compiler.zero(if_check.address);
+                    Ok(())
+                })?;
+                self.loop_while(else_check.address, |compiler| {
+                    else_case(compiler)?;
+                    compiler.sub_assign(else_check.address, Value::constant(1))?;
+                    Ok(())
+                })
+            }
+        }
     }
 
     pub fn n_times<F: Fn(&mut Self) -> CompileResult<()>>(
@@ -479,9 +488,9 @@ impl<'a> BrainCrabCompiler<'a> {
                     if_body,
                     else_body,
                 } => {
-                    let address = self.get_address(predicate)?;
+                    let predicate = self.eval_expression(predicate)?;
                     self.if_then_else(
-                        address,
+                        predicate,
                         |compiler| compiler.compile_instructions(if_body),
                         |compiler| compiler.compile_instructions(else_body),
                     )?;

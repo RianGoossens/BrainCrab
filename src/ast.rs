@@ -55,7 +55,7 @@ pub enum Instruction<'a> {
         body: Vec<Instruction<'a>>,
     },
     IfThenElse {
-        predicate: &'a str,
+        predicate: Expression<'a>,
         if_body: Vec<Instruction<'a>>,
         else_body: Vec<Instruction<'a>>,
     },
