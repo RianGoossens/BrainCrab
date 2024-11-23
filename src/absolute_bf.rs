@@ -54,6 +54,21 @@ pub struct ABFProgram {
 }
 
 impl ABFProgram {
+    pub fn push_instruction(&mut self, instruction: ABFTree) {
+        match (&instruction, self.body.last_mut()) {
+            (ABFTree::MoveTo(destination), Some(ABFTree::MoveTo(previous_destination))) => {
+                *previous_destination = *destination
+            }
+            (ABFTree::Add(a), Some(ABFTree::Add(b))) => *b = b.wrapping_add(*a),
+            _ => self.body.push(instruction),
+        }
+    }
+
+    pub fn append(&mut self, rhs: ABFProgram) {
+        for instruction in rhs.body {
+            self.push_instruction(instruction);
+        }
+    }
     pub fn calculate_path(&self) -> Vec<u16> {
         let mut path = vec![0];
         for tree in &self.body {
