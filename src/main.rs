@@ -145,8 +145,12 @@ fn main() -> io::Result<()> {
                 name: "x<=y",
                 value: 0.into(),
             },
+            Instruction::Define {
+                name: "loopvar",
+                value: 1.into(),
+            },
             Instruction::While {
-                predicate: Expression::and("x".into(), "y".into()),
+                predicate: "loopvar".into(),
                 body: vec![
                     Instruction::SubAssign {
                         name: "x",
@@ -156,15 +160,28 @@ fn main() -> io::Result<()> {
                         name: "y",
                         value: 1.into(),
                     },
+                    Instruction::IfThenElse {
+                        predicate: "x".into(),
+                        if_body: vec![Instruction::IfThenElse {
+                            predicate: "y".into(),
+                            if_body: vec![],
+                            else_body: vec![Instruction::SubAssign {
+                                name: "loopvar",
+                                value: 1.into(),
+                            }],
+                        }],
+                        else_body: vec![
+                            Instruction::AddAssign {
+                                name: "x<=y",
+                                value: 1.into(),
+                            },
+                            Instruction::SubAssign {
+                                name: "loopvar",
+                                value: 1.into(),
+                            },
+                        ],
+                    },
                 ],
-            },
-            Instruction::IfThenElse {
-                predicate: "x".into(),
-                if_body: vec![],
-                else_body: vec![Instruction::Assign {
-                    name: "x<=y",
-                    value: 1.into(),
-                }],
             },
         ],
     };
