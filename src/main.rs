@@ -6,6 +6,8 @@ use ast::{Expression, Instruction, Program};
 use bf_core::BFInterpreter;
 use compiler::BrainCrabCompiler;
 
+mod absolute_bf;
+mod allocator;
 mod ast;
 mod compiler;
 mod value;

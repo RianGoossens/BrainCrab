@@ -4,6 +4,7 @@ use bf_core::{BFProgram, BFTree};
 use bf_macros::bf;
 
 use crate::{
+    allocator::BrainCrabAllocator,
     ast::{Expression, Instruction, Program},
     value::{Owned, Value, Variable},
 };
@@ -73,14 +74,10 @@ pub struct BrainCrabCompiler<'a> {
 
 impl<'a> Default for BrainCrabCompiler<'a> {
     fn default() -> Self {
-        let mut free_addresses = vec![];
-        for x in (0..30000).rev() {
-            free_addresses.push(x);
-        }
         Self {
             program_stack: vec![BFProgram::new()],
             variable_map: Default::default(),
-            address_pool: Rc::new(RefCell::new(free_addresses)),
+            address_pool: Rc::new(RefCell::new(BrainCrabAllocator::new_allocator())),
             pointer: 0,
         }
     }
@@ -110,7 +107,7 @@ impl<'a> BrainCrabCompiler<'a> {
     // Memory management
 
     pub fn allocate(&mut self) -> CompileResult<Owned> {
-        if let Some(address) = self.address_pool.borrow_mut().pop() {
+        if let Some(address) = self.address_pool.borrow_mut().allocate(self.pointer) {
             Ok(Owned {
                 address,
                 address_pool: self.address_pool.clone(),

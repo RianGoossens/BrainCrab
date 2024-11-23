@@ -1,4 +1,4 @@
-use crate::compiler::AddressPool;
+use crate::{allocator::BrainCrabAllocator, compiler::AddressPool};
 
 #[derive(PartialEq, Eq)]
 pub struct Owned {
@@ -15,7 +15,7 @@ impl Owned {
 
 impl Drop for Owned {
     fn drop(&mut self) {
-        self.address_pool.borrow_mut().push(self.address);
+        self.address_pool.borrow_mut().deallocate(self.address);
     }
 }
 
