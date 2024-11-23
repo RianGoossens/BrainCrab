@@ -483,9 +483,14 @@ impl<'a> BrainCrabCompiler<'a> {
                     Ok(Value::constant(1))
                 }
             }
-            Value::Variable(variable) => {
-                self.not_assign(variable.address(), variable.borrow().into())?;
-                Ok(variable.into())
+            Value::Variable(Variable::Owned(owned)) => {
+                self.not_assign(owned.address, owned.borrow().into())?;
+                Ok(owned.into())
+            }
+            Value::Variable(Variable::Borrow(borrowed)) => {
+                let result = self.new_temp()?;
+                self.not_assign(result.address, Value::borrow(borrowed))?;
+                Ok(result.into())
             }
         }
     }

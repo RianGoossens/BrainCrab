@@ -135,53 +135,42 @@ fn main() -> io::Result<()> {
         instructions: vec![
             Instruction::Define {
                 name: "x",
-                value: Expression::constant(10),
+                value: 10.into(),
             },
             Instruction::Define {
                 name: "y",
-                value: Expression::constant(3),
+                value: 5.into(),
+            },
+            Instruction::Define {
+                name: "x<=y",
+                value: 0.into(),
             },
             Instruction::While {
-                predicate: Expression::sub(Expression::variable("x"), Expression::constant(4)),
+                predicate: Expression::and("x".into(), "y".into()),
                 body: vec![
-                    Instruction::WriteString {
-                        string: "The detected value was ",
-                    },
-                    Instruction::IfThenElse {
-                        predicate: Expression::or(
-                            Expression::equals(Expression::variable("x"), Expression::constant(5)),
-                            Expression::equals(Expression::variable("x"), Expression::constant(8)),
-                        ),
-                        else_body: vec![Instruction::IfThenElse {
-                            predicate: Expression::sub(
-                                Expression::variable("x"),
-                                Expression::constant(6),
-                            ),
-                            if_body: vec![Instruction::IfThenElse {
-                                predicate: Expression::sub(
-                                    Expression::variable("x"),
-                                    Expression::constant(7),
-                                ),
-                                if_body: vec![Instruction::WriteString { string: "OTHER" }],
-                                else_body: vec![Instruction::WriteString { string: "7" }],
-                            }],
-                            else_body: vec![Instruction::WriteString { string: "SIX" }],
-                        }],
-                        if_body: vec![Instruction::WriteString {
-                            string: "FIVE OR EIGHT",
-                        }],
-                    },
                     Instruction::SubAssign {
                         name: "x",
-                        value: Expression::constant(1),
+                        value: 1.into(),
                     },
-                    Instruction::WriteString { string: "!\n" },
+                    Instruction::SubAssign {
+                        name: "y",
+                        value: 1.into(),
+                    },
                 ],
+            },
+            Instruction::IfThenElse {
+                predicate: "x".into(),
+                if_body: vec![],
+                else_body: vec![Instruction::Assign {
+                    name: "x<=y",
+                    value: 1.into(),
+                }],
             },
         ],
     };
     let bf_program = BrainCrabCompiler::compile(program).expect("could not compile program");
-    println!("{}", bf_program.to_string());
+    let bf_program_string = bf_program.to_string();
+    println!("{}\nLength:{}", bf_program_string, bf_program_string.len());
     let mut interpreter = BFInterpreter::new();
     interpreter.run(&bf_program);
     println!("\n{:?}", interpreter.tape()[..10].to_owned());

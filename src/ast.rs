@@ -41,6 +41,18 @@ impl<'a> Expression<'a> {
     }
 }
 
+impl<'a> From<u8> for Expression<'a> {
+    fn from(value: u8) -> Self {
+        Expression::constant(value)
+    }
+}
+
+impl<'a> From<&'a str> for Expression<'a> {
+    fn from(value: &'a str) -> Self {
+        Expression::variable(value)
+    }
+}
+
 pub enum Instruction<'a> {
     Define {
         name: &'a str,
