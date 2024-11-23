@@ -15,3 +15,6 @@ Here are my upcoming tasks.
 - Division
 - Modulo
 - Types? (u8, bool, structs, arrays...)
+
+- Start on a parser
+- Start reusing cli
