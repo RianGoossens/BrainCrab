@@ -11,3 +11,4 @@ A Brainfuck cli with various utilities included."""
 bf_core = { path = "bf_core" }
 bf_macros = { path = "bf_macros" }
 clap = { version = "4.5.21", features = ["derive"] }
+rand = "0.8.5"

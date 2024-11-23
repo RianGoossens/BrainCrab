@@ -4,6 +4,7 @@ use bf_core::{BFProgram, BFTree};
 use bf_macros::bf;
 
 use crate::{
+    absolute_bf::{ABFProgram, ABFTree},
     allocator::BrainCrabAllocator,
     ast::{Expression, Instruction, Program},
     value::{Owned, Value, Variable},
@@ -66,7 +67,7 @@ impl<'a> ScopedVariableMap<'a> {
 }
 
 pub struct BrainCrabCompiler<'a> {
-    pub program_stack: Vec<BFProgram>,
+    pub program_stack: Vec<ABFProgram>,
     pub variable_map: ScopedVariableMap<'a>,
     pub address_pool: AddressPool,
     pub pointer: u16,
@@ -75,7 +76,7 @@ pub struct BrainCrabCompiler<'a> {
 impl<'a> Default for BrainCrabCompiler<'a> {
     fn default() -> Self {
         Self {
-            program_stack: vec![BFProgram::new()],
+            program_stack: vec![ABFProgram::new()],
             variable_map: Default::default(),
             address_pool: Rc::new(RefCell::new(BrainCrabAllocator::new_allocator())),
             pointer: 0,
@@ -88,15 +89,15 @@ impl<'a> BrainCrabCompiler<'a> {
         Self::default()
     }
 
-    pub fn program(&mut self) -> &mut BFProgram {
+    pub fn program(&mut self) -> &mut ABFProgram {
         self.program_stack.last_mut().unwrap()
     }
 
-    pub fn push_instruction(&mut self, instruction: BFTree) {
+    pub fn push_instruction(&mut self, instruction: ABFTree) {
         self.program().push_instruction(instruction);
     }
 
-    pub fn get_result(mut self) -> CompileResult<BFProgram> {
+    pub fn get_result(mut self) -> CompileResult<ABFProgram> {
         if self.program_stack.len() != 1 {
             Err(CompilerError::UnclosedLoop)
         } else {
@@ -156,7 +157,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn move_pointer(&mut self, amount: i16) {
         self.pointer = ((self.pointer as i16) + amount) as u16;
-        self.push_instruction(BFTree::Move(amount));
+        self.push_instruction(ABFTree::MoveTo(self.pointer));
     }
 
     pub fn move_pointer_to(&mut self, address: u16) {
@@ -167,19 +168,19 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn inc_current(&mut self) {
-        self.push_instruction(BFTree::Add(1));
+        self.push_instruction(ABFTree::Add(1));
     }
 
     pub fn dec_current(&mut self) {
-        self.push_instruction(BFTree::Add(255));
+        self.push_instruction(ABFTree::Add(255));
     }
 
     pub fn write_current(&mut self) {
-        self.push_instruction(BFTree::Write);
+        self.push_instruction(ABFTree::Write);
     }
 
     pub fn read_current(&mut self) {
-        self.push_instruction(BFTree::Read);
+        self.push_instruction(ABFTree::Read);
     }
 
     pub fn scoped<F: FnOnce(&mut Self) -> CompileResult<()>>(&mut self, f: F) -> CompileResult<()> {
@@ -201,7 +202,7 @@ impl<'a> BrainCrabCompiler<'a> {
     ) -> CompileResult<()> {
         self.move_pointer_to(predicate);
 
-        self.program_stack.push(BFProgram::new());
+        self.program_stack.push(ABFProgram::new());
         self.scoped(|compiler| {
             f(compiler)?;
             compiler.move_pointer_to(predicate);
@@ -209,7 +210,7 @@ impl<'a> BrainCrabCompiler<'a> {
         })?;
 
         let loop_program = self.program_stack.pop().unwrap();
-        self.push_instruction(BFTree::Loop(loop_program.0));
+        self.push_instruction(ABFTree::While(loop_program.body));
         Ok(())
     }
 
@@ -318,7 +319,9 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn zero(&mut self, address: u16) {
         self.move_pointer_to(address);
-        self.program().append(bf!("[-]"));
+        self.program().append(ABFProgram {
+            body: vec![ABFTree::While(vec![ABFTree::Add(255)])],
+        });
     }
 
     pub fn add_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
@@ -711,7 +714,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
         Ok(())
     }
-    pub fn compile(program: Program) -> CompileResult<BFProgram> {
+    pub fn compile(program: Program) -> CompileResult<ABFProgram> {
         let mut compiler = BrainCrabCompiler::new();
         compiler.compile_instructions(program.instructions)?;
         compiler.get_result()
