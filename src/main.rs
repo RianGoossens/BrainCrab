@@ -187,8 +187,25 @@ fn main() -> io::Result<()> {
             },
         ],
     };
+    let program = Program {
+        instructions: vec![
+            Instruction::Define {
+                name: "x",
+                value: 10.into(),
+            },
+            Instruction::Define {
+                name: "y",
+                value: 10.into(),
+            },
+            Instruction::Define {
+                name: "x<=y",
+                value: Expression::less_than_equals("x".into(), "y".into()),
+            },
+        ],
+    };
 
-    let mut abf_program = BrainCrabCompiler::compile(program).expect("could not compile program");
+    let mut abf_program =
+        BrainCrabCompiler::compile_abf(program).expect("could not compile program");
     let bf_program = abf_program.to_bf();
     let bf_program_string = bf_program.to_string();
     println!(

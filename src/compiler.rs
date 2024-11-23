@@ -1,8 +1,5 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use bf_core::{BFProgram, BFTree};
-use bf_macros::bf;
-
 use crate::{
     absolute_bf::{ABFProgram, ABFTree},
     allocator::BrainCrabAllocator,
@@ -151,6 +148,17 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn new_temp(&mut self) -> CompileResult<Owned> {
         self.allocate()
+    }
+
+    pub fn create_owned_from(&mut self, value: Value) -> CompileResult<Owned> {
+        match value {
+            Value::Constant(_) | Value::Variable(Variable::Borrow(_)) => {
+                let owned = self.allocate()?;
+                self.add_assign(owned.address, value)?;
+                Ok(owned)
+            }
+            Value::Variable(Variable::Owned(owned)) => Ok(owned),
+        }
     }
 
     // Primitives
@@ -569,6 +577,46 @@ impl<'a> BrainCrabCompiler<'a> {
         self.eval_not(not_equals)
     }
 
+    fn eval_less_than_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        match (a, b) {
+            (Value::Constant(a), Value::Constant(b)) => {
+                Ok(Value::Constant(if a <= b { 1 } else { 0 }))
+            }
+            (a, b) => {
+                let a_temp = self.create_owned_from(a)?;
+                let b_temp = self.create_owned_from(b)?;
+                let result = self.new_temp()?;
+                let loop_value = self.new_temp()?;
+                self.add_assign(loop_value.address, Value::constant(1))?;
+                self.loop_while(loop_value.address, |compiler| {
+                    compiler.sub_assign(a_temp.address, Value::constant(1))?;
+                    compiler.sub_assign(b_temp.address, Value::constant(1))?;
+                    compiler.if_then_else(
+                        a_temp.borrow().into(),
+                        |compiler| {
+                            compiler.if_then_else(
+                                b_temp.borrow().into(),
+                                |_| Ok(()),
+                                |compiler| {
+                                    compiler.zero(a_temp.address);
+                                    compiler.sub_assign(loop_value.address, Value::constant(1))
+                                },
+                            )
+                        },
+                        |compiler| {
+                            compiler.zero(b_temp.address);
+                            compiler.add_assign(result.address, Value::constant(1))?;
+                            compiler.sub_assign(loop_value.address, Value::constant(1))
+                        },
+                    )?;
+                    Ok(())
+                })?;
+
+                Ok(result.into())
+            }
+        }
+    }
+
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
             Expression::Constant(value) => Ok(Value::constant(value)),
@@ -609,6 +657,11 @@ impl<'a> BrainCrabCompiler<'a> {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
                 self.eval_not_equals(a, b)
+            }
+            Expression::LessThanEquals(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_less_than_equals(a, b)
             }
         }
     }
@@ -714,7 +767,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
         Ok(())
     }
-    pub fn compile(program: Program) -> CompileResult<ABFProgram> {
+    pub fn compile_abf(program: Program) -> CompileResult<ABFProgram> {
         let mut compiler = BrainCrabCompiler::new();
         compiler.compile_instructions(program.instructions)?;
         compiler.get_result()

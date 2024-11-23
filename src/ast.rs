@@ -9,6 +9,7 @@ pub enum Expression<'a> {
     Or(Box<Expression<'a>>, Box<Expression<'a>>),
     Equals(Box<Expression<'a>>, Box<Expression<'a>>),
     NotEquals(Box<Expression<'a>>, Box<Expression<'a>>),
+    LessThanEquals(Box<Expression<'a>>, Box<Expression<'a>>),
 }
 
 impl<'a> Expression<'a> {
@@ -38,6 +39,9 @@ impl<'a> Expression<'a> {
     }
     pub fn not_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::NotEquals(Box::new(a), Box::new(b))
+    }
+    pub fn less_than_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
+        Self::LessThanEquals(Box::new(a), Box::new(b))
     }
 }
 
