@@ -1,3 +1,4 @@
+use abf_optimizer::path_optimize;
 use bf_core::{BFProgram, BFTree};
 
 #[derive(Debug)]
@@ -54,6 +55,15 @@ impl ABFTree {
             }
         }
     }
+    fn remap_addresses(&mut self, address_map: &[u16]) {
+        match self {
+            ABFTree::MoveTo(address) => *address = address_map[*address as usize],
+            ABFTree::While(body) => body.iter_mut().for_each(|tree| {
+                tree.remap_addresses(address_map);
+            }),
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -87,6 +97,19 @@ impl ABFProgram {
         }
         path
     }
+    fn remap_addresses(&mut self, address_map: &[u16]) {
+        self.body.insert(0, ABFTree::MoveTo(0));
+
+        for tree in &mut self.body {
+            tree.remap_addresses(address_map);
+        }
+    }
+    pub fn optimize_addresses(&mut self, max_iterations: u32) {
+        let current_path = self.calculate_path();
+        let address_map = path_optimize(&current_path, max_iterations);
+        self.remap_addresses(&address_map);
+    }
+
     pub fn to_bf(&self) -> BFProgram {
         let mut bf_program = BFProgram::new();
         let mut pointer = 0;
@@ -97,12 +120,8 @@ impl ABFProgram {
     }
 }
 
-pub mod abf_optimizer {
-    use std::mem::swap;
-
+mod abf_optimizer {
     use rand::{thread_rng, Rng};
-
-    use crate::allocator::BrainCrabAllocator;
 
     fn path_score(path: &[u16]) -> u32 {
         path.windows(2)
@@ -121,7 +140,7 @@ pub mod abf_optimizer {
     }
     fn mutate_map(map: &[u16], max_mutations: u8) -> Vec<u16> {
         let mut result = map.to_vec();
-        let number_of_mutations = thread_rng().gen_range(1..max_mutations);
+        let number_of_mutations = thread_rng().gen_range(1..=max_mutations);
         for _i in 0..number_of_mutations {
             let index_a = thread_rng().gen_range(0..map.len());
             let index_b = thread_rng().gen_range(0..map.len());
@@ -129,22 +148,19 @@ pub mod abf_optimizer {
         }
         result
     }
-    pub fn path_optimize(path: &[u16], max_iterations: u32) {
-        let mut best_path = path.to_vec();
+    pub fn path_optimize(path: &[u16], max_iterations: u32) -> Vec<u16> {
         let mut best_score = path_score(path);
-        println!("Initial score {best_score}\n{:?}", path);
 
-        let mut best_map: Vec<_> = (0..*best_path.iter().max().unwrap()).collect();
-        for _ in 0..max_iterations {
-            let mutation = mutate_map(&best_map, 3);
+        let mut best_map: Vec<_> = (0..=*path.iter().max().unwrap()).collect();
+        for _i in 0..max_iterations {
+            let mutation = mutate_map(&best_map, 5);
             let current_path = remap_path(path, &mutation);
             let current_score = path_score(&current_path);
             if current_score < best_score {
-                println!("New best score {current_score}\n{:?}", current_path);
-                best_path = current_path;
                 best_score = current_score;
                 best_map = mutation;
             }
         }
+        best_map
     }
 }

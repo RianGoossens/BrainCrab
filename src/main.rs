@@ -188,11 +188,20 @@ fn main() -> io::Result<()> {
         ],
     };
 
-    let abf_program = BrainCrabCompiler::compile(program).expect("could not compile program");
+    let mut abf_program = BrainCrabCompiler::compile(program).expect("could not compile program");
+    let bf_program = abf_program.to_bf();
+    let bf_program_string = bf_program.to_string();
+    println!(
+        "{}\nLength:{}\n",
+        bf_program_string,
+        bf_program_string.len()
+    );
+
+    abf_program.optimize_addresses(1000);
     let bf_program = abf_program.to_bf();
     let bf_program_string = bf_program.to_string();
     println!("{}\nLength:{}", bf_program_string, bf_program_string.len());
-    println!("ABF Path: {:?}", abf_program.calculate_path());
+
     let mut interpreter = BFInterpreter::new();
     interpreter.run(&bf_program);
     println!("\n{:?}", interpreter.tape()[..10].to_owned());
