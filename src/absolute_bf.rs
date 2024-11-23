@@ -5,19 +5,19 @@ pub enum ABFTree {
     Add(u8),
     Write,
     Read,
-    While(u16, Vec<ABFTree>),
+    While(Vec<ABFTree>),
 }
 
 impl ABFTree {
     fn calculate_path_impl(&self, output: &mut Vec<u16>) {
         match self {
             ABFTree::MoveTo(x) => output.push(*x),
-            ABFTree::While(predicate, body) => {
-                output.push(*predicate);
+            ABFTree::While(body) => {
+                let start_point = *output.last().unwrap();
                 for tree in body {
                     tree.calculate_path_impl(output);
                 }
-                output.push(*predicate);
+                output.push(start_point);
             }
             _ => {}
         }
@@ -34,13 +34,13 @@ impl ABFTree {
             }
             ABFTree::Write => output.push(BFTree::Write),
             ABFTree::Read => output.push(BFTree::Read),
-            ABFTree::While(predicate, body) => {
-                ABFTree::MoveTo(*predicate).to_bf_impl(pointer, output);
+            ABFTree::While(body) => {
+                let start_pointer = *pointer;
 
                 let mut body_bf = vec![];
                 for tree in body {
                     tree.to_bf_impl(pointer, &mut body_bf);
-                    ABFTree::MoveTo(*predicate).to_bf_impl(pointer, &mut body_bf);
+                    ABFTree::MoveTo(start_pointer).to_bf_impl(pointer, &mut body_bf);
                 }
 
                 output.push(BFTree::Loop(body_bf))
