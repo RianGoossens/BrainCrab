@@ -603,6 +603,20 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
+    fn eval_greater_than_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        self.eval_less_than_equals(b, a)
+    }
+
+    fn eval_less_than(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        let opposite = self.eval_greater_than_equals(a, b)?;
+        self.eval_not(opposite)
+    }
+
+    fn eval_greater_than(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        let opposite = self.eval_less_than_equals(a, b)?;
+        self.eval_not(opposite)
+    }
+
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
             Expression::Constant(value) => Ok(Value::constant(value)),
@@ -648,6 +662,21 @@ impl<'a> BrainCrabCompiler<'a> {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
                 self.eval_less_than_equals(a, b)
+            }
+            Expression::GreaterThanEquals(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_greater_than_equals(a, b)
+            }
+            Expression::LessThan(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_less_than(a, b)
+            }
+            Expression::GreaterThan(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_greater_than(a, b)
             }
         }
     }

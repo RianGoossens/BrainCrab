@@ -195,11 +195,11 @@ fn main() -> io::Result<()> {
             },
             Instruction::Define {
                 name: "y",
-                value: 10.into(),
+                value: 15.into(),
             },
             Instruction::Define {
                 name: "x<=y",
-                value: Expression::less_than_equals("x".into(), "y".into()),
+                value: Expression::less_than("x".into(), "y".into()),
             },
         ],
     };

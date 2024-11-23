@@ -10,6 +10,9 @@ pub enum Expression<'a> {
     Equals(Box<Expression<'a>>, Box<Expression<'a>>),
     NotEquals(Box<Expression<'a>>, Box<Expression<'a>>),
     LessThanEquals(Box<Expression<'a>>, Box<Expression<'a>>),
+    GreaterThanEquals(Box<Expression<'a>>, Box<Expression<'a>>),
+    LessThan(Box<Expression<'a>>, Box<Expression<'a>>),
+    GreaterThan(Box<Expression<'a>>, Box<Expression<'a>>),
 }
 
 impl<'a> Expression<'a> {
@@ -42,6 +45,15 @@ impl<'a> Expression<'a> {
     }
     pub fn less_than_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::LessThanEquals(Box::new(a), Box::new(b))
+    }
+    pub fn greater_than_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
+        Self::GreaterThanEquals(Box::new(a), Box::new(b))
+    }
+    pub fn less_than(a: Expression<'a>, b: Expression<'a>) -> Self {
+        Self::LessThan(Box::new(a), Box::new(b))
+    }
+    pub fn greater_than(a: Expression<'a>, b: Expression<'a>) -> Self {
+        Self::GreaterThan(Box::new(a), Box::new(b))
     }
 }
 

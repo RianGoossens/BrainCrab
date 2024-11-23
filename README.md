@@ -10,7 +10,6 @@ Here are my upcoming tasks.
 - Refine repl, perhaps use crossterm or even ratatui?
 
 ### Braincrab Language TODO
-- lt, gt, ge
 - Multiplication
 - Division
 - Modulo
