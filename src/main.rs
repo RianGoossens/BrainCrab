@@ -1,16 +1,17 @@
+mod absolute_bf;
+mod allocator;
+mod ast;
 mod cli;
+mod compiler;
+mod parser;
+mod value;
 
 use std::io;
 
 use ast::{Expression, Instruction, Program};
 use bf_core::BFInterpreter;
 use compiler::BrainCrabCompiler;
-
-mod absolute_bf;
-mod allocator;
-mod ast;
-mod compiler;
-mod value;
+use parser::Parser;
 
 fn main() -> io::Result<()> {
     let _program = Program {
@@ -223,6 +224,9 @@ fn main() -> io::Result<()> {
     interpreter.run(&bf_program);
     println!("\n{:?}", interpreter.tape()[..10].to_owned());
 
+    let mut parser = Parser::new("123").unwrap();
+    let number = parser.parse_u8().unwrap();
+    println!("Parsed a number: {}, double it: {}", number, number * 2);
     /*
     let cli = Cli::parse();
 

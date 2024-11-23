@@ -15,6 +15,19 @@ Here are my upcoming tasks.
 - Modulo
 - Types? (u8, bool, structs, arrays...)
 - Macros
-
-- Start on a parser
 - Start reusing cli
+
+#### Parser Todo
+- Parse literal characters
+- Parse constants
+- Parse variable names
+- Parse assignments
+- Parse add-assignment
+- Parse sub-assignment
+- Parse expressions
+  - constants
+  - variables
+  - unaries
+  - binaries
+  - order of operations!
+  - parens
