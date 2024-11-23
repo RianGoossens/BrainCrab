@@ -160,16 +160,9 @@ impl<'a> BrainCrabCompiler<'a> {
 
     // Primitives
 
-    pub fn move_pointer(&mut self, amount: i16) {
-        self.pointer = ((self.pointer as i16) + amount) as u16;
-        self.push_instruction(ABFTree::MoveTo(self.pointer));
-    }
-
     pub fn move_pointer_to(&mut self, address: u16) {
-        let offset = address as i16 - self.pointer as i16;
-        if offset != 0 {
-            self.move_pointer(offset);
-        }
+        self.pointer = address;
+        self.push_instruction(ABFTree::MoveTo(address));
     }
 
     pub fn inc_current(&mut self) {
