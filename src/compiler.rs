@@ -146,11 +146,8 @@ impl<'a> BrainCrabCompiler<'a> {
         Ok(variable.address())
     }
 
-    pub fn new_temp(&mut self) -> CompileResult<Owned> {
-        self.allocate()
-    }
-
-    pub fn create_owned_from(&mut self, value: Value) -> CompileResult<Owned> {
+    pub fn new_owned<V: Into<Value>>(&mut self, value: V) -> CompileResult<Owned> {
+        let value: Value = value.into();
         match value {
             Value::Constant(_) | Value::Variable(Variable::Borrow(_)) => {
                 let owned = self.allocate()?;
@@ -236,8 +233,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 }
             }
             Value::Variable(variable) => {
-                let if_check = self.new_temp()?;
-                self.add_assign(if_check.address, variable.into())?;
+                let if_check = self.new_owned(variable)?;
                 self.loop_while(if_check.address, |compiler| {
                     body(compiler)?;
                     compiler.zero(if_check.address);
@@ -265,19 +261,17 @@ impl<'a> BrainCrabCompiler<'a> {
                 }
             }
             Value::Variable(variable) => {
-                let else_check = self.new_temp()?;
-                self.add_assign(else_check.address, Value::constant(1))?;
-                let if_check = self.new_temp()?;
-                self.add_assign(if_check.address, variable.into())?;
+                let else_check = self.new_owned(1)?;
+                let if_check = self.new_owned(variable)?;
                 self.loop_while(if_check.address, |compiler| {
                     if_case(compiler)?;
-                    compiler.sub_assign(else_check.address, Value::constant(1))?;
+                    compiler.sub_assign(else_check.address, 1.into())?;
                     compiler.zero(if_check.address);
                     Ok(())
                 })?;
                 self.loop_while(else_check.address, |compiler| {
                     else_case(compiler)?;
-                    compiler.sub_assign(else_check.address, Value::constant(1))?;
+                    compiler.sub_assign(else_check.address, 1.into())?;
                     Ok(())
                 })
             }
@@ -305,7 +299,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 }
                 _ => {
                     let address = variable.address();
-                    let temp = self.new_temp()?;
+                    let temp = self.new_owned(0)?;
                     self.loop_while(address, |compiler| {
                         compiler.dec_current();
                         compiler.move_pointer_to(temp.address);
@@ -337,7 +331,7 @@ impl<'a> BrainCrabCompiler<'a> {
             let value_address = variable.address();
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
-                let temp = self.new_temp()?;
+                let temp = self.new_owned(0)?;
                 self.copy_on_top_of_cells(value, &[temp.address])?;
                 self.copy_on_top_of_cells(Value::owned(temp), &[value_address])?;
                 return Ok(());
@@ -369,7 +363,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 compiler.zero(destination);
                 Ok(())
             },
-            |compiler| compiler.add_assign(destination, Value::constant(1)),
+            |compiler| compiler.add_assign(destination, 1.into()),
         )
     }
     pub fn and_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
@@ -387,9 +381,7 @@ impl<'a> BrainCrabCompiler<'a> {
             Value::borrow(destination),
             |_| Ok(()),
             |compiler| {
-                compiler.if_then(value, |compiler| {
-                    compiler.add_assign(destination, Value::constant(1))
-                })
+                compiler.if_then(value, |compiler| compiler.add_assign(destination, 1.into()))
             },
         )
     }
@@ -424,7 +416,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn write_string(&mut self, string: &str) -> CompileResult<()> {
         if string.is_ascii() {
-            let temp = self.new_temp()?;
+            let temp = self.new_owned(0)?;
             self.move_pointer_to(temp.address);
             let mut current_value = 0u8;
             for char in string.chars() {
@@ -456,8 +448,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 Ok(Value::owned(b))
             }
             (a, b) => {
-                let temp = self.new_temp()?;
-                self.add_assign(temp.address, a)?;
+                let temp = self.new_owned(a)?;
                 self.add_assign(temp.address, b)?;
 
                 Ok(Value::owned(temp))
@@ -473,8 +464,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 Ok(Value::owned(a))
             }
             (a, b) => {
-                let temp = self.new_temp()?;
-                self.add_assign(temp.address, a)?;
+                let temp = self.new_owned(a)?;
                 self.sub_assign(temp.address, b)?;
 
                 Ok(Value::owned(temp))
@@ -486,9 +476,9 @@ impl<'a> BrainCrabCompiler<'a> {
         match inner {
             Value::Constant(value) => {
                 if value > 0 {
-                    Ok(Value::constant(0))
+                    Ok(0.into())
                 } else {
-                    Ok(Value::constant(1))
+                    Ok(1.into())
                 }
             }
             Value::Variable(Variable::Owned(owned)) => {
@@ -496,7 +486,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 Ok(owned.into())
             }
             Value::Variable(Variable::Borrow(borrowed)) => {
-                let result = self.new_temp()?;
+                let result = self.new_owned(0)?;
                 self.not_assign(result.address, Value::borrow(borrowed))?;
                 Ok(result.into())
             }
@@ -517,8 +507,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 Ok(Value::owned(b))
             }
             (a, b) => {
-                let temp = self.new_temp()?;
-                self.add_assign(temp.address, a)?;
+                let temp = self.new_owned(a)?;
                 self.and_assign(temp.address, b)?;
 
                 Ok(Value::owned(temp))
@@ -540,8 +529,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 Ok(Value::owned(b))
             }
             (a, b) => {
-                let temp = self.new_temp()?;
-                self.add_assign(temp.address, a)?;
+                let temp = self.new_owned(a)?;
                 self.or_assign(temp.address, b)?;
 
                 Ok(Value::owned(temp))
@@ -563,8 +551,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 Ok(Value::owned(b))
             }
             (a, b) => {
-                let temp = self.new_temp()?;
-                self.add_assign(temp.address, a)?;
+                let temp = self.new_owned(a)?;
                 self.sub_assign(temp.address, b)?;
 
                 Ok(Value::owned(temp))
@@ -583,14 +570,13 @@ impl<'a> BrainCrabCompiler<'a> {
                 Ok(Value::Constant(if a <= b { 1 } else { 0 }))
             }
             (a, b) => {
-                let a_temp = self.create_owned_from(a)?;
-                let b_temp = self.create_owned_from(b)?;
-                let result = self.new_temp()?;
-                let loop_value = self.new_temp()?;
-                self.add_assign(loop_value.address, Value::constant(1))?;
+                let a_temp = self.new_owned(a)?;
+                let b_temp = self.new_owned(b)?;
+                let result = self.new_owned(0)?;
+                let loop_value = self.new_owned(1)?;
                 self.loop_while(loop_value.address, |compiler| {
-                    compiler.sub_assign(a_temp.address, Value::constant(1))?;
-                    compiler.sub_assign(b_temp.address, Value::constant(1))?;
+                    compiler.sub_assign(a_temp.address, 1.into())?;
+                    compiler.sub_assign(b_temp.address, 1.into())?;
                     compiler.if_then_else(
                         a_temp.borrow().into(),
                         |compiler| {
@@ -599,14 +585,14 @@ impl<'a> BrainCrabCompiler<'a> {
                                 |_| Ok(()),
                                 |compiler| {
                                     compiler.zero(a_temp.address);
-                                    compiler.sub_assign(loop_value.address, Value::constant(1))
+                                    compiler.sub_assign(loop_value.address, 1.into())
                                 },
                             )
                         },
                         |compiler| {
                             compiler.zero(b_temp.address);
-                            compiler.add_assign(result.address, Value::constant(1))?;
-                            compiler.sub_assign(loop_value.address, Value::constant(1))
+                            compiler.add_assign(result.address, 1.into())?;
+                            compiler.sub_assign(loop_value.address, 1.into())
                         },
                     )?;
                     Ok(())
@@ -675,8 +661,7 @@ impl<'a> BrainCrabCompiler<'a> {
             Expression::Constant(predicate) => {
                 if predicate > 0 {
                     // Infinite loop
-                    let temp = self.new_temp()?;
-                    self.add_assign(temp.address, Value::constant(1))?;
+                    let temp = self.new_owned(1)?;
                     self.loop_while(temp.address, body)
                 } else {
                     // Nothing to do here
@@ -688,9 +673,8 @@ impl<'a> BrainCrabCompiler<'a> {
                 self.loop_while(predicate, body)
             }
             _ => {
-                let temp = self.new_temp()?;
                 let predicate_value = self.eval_expression(predicate.clone())?;
-                self.add_assign(temp.address, predicate_value)?;
+                let temp = self.new_owned(predicate_value)?;
                 self.loop_while(temp.address, |compiler| {
                     body(compiler)?;
                     let predicate_value = compiler.eval_expression(predicate)?;

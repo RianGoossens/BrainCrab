@@ -29,17 +29,11 @@ impl Variable {
     pub fn is_owned(&self) -> bool {
         matches!(self, Variable::Owned(_))
     }
-    pub fn is_borrowed(&self) -> bool {
-        matches!(self, Variable::Borrow(_))
-    }
     pub fn address(&self) -> u16 {
         match self {
             Variable::Owned(owned) => owned.address,
             Variable::Borrow(address) => *address,
         }
-    }
-    pub fn borrow(&self) -> Self {
-        Variable::Borrow(self.address())
     }
 }
 
@@ -78,5 +72,11 @@ impl From<Variable> for Value {
 impl From<Owned> for Value {
     fn from(owned: Owned) -> Self {
         Self::Variable(owned.into())
+    }
+}
+
+impl From<u8> for Value {
+    fn from(value: u8) -> Self {
+        Self::Constant(value)
     }
 }
