@@ -86,7 +86,7 @@ fn main() -> io::Result<()> {
             Instruction::WriteString { string: "!\n" },
         ],
     };
-    let program = Program {
+    let _program = Program {
         instructions: vec![
             Instruction::Define {
                 name: "x",
@@ -99,11 +99,11 @@ fn main() -> io::Result<()> {
                         string: "The detected value was ",
                     },
                     Instruction::IfThenElse {
-                        predicate: Expression::and(
-                            Expression::sub(Expression::variable("x"), Expression::constant(5)),
-                            Expression::sub(Expression::variable("x"), Expression::constant(8)),
+                        predicate: Expression::or(
+                            Expression::equals(Expression::variable("x"), Expression::constant(5)),
+                            Expression::equals(Expression::variable("x"), Expression::constant(8)),
                         ),
-                        if_body: vec![Instruction::IfThenElse {
+                        else_body: vec![Instruction::IfThenElse {
                             predicate: Expression::sub(
                                 Expression::variable("x"),
                                 Expression::constant(6),
@@ -118,7 +118,56 @@ fn main() -> io::Result<()> {
                             }],
                             else_body: vec![Instruction::WriteString { string: "SIX" }],
                         }],
-                        else_body: vec![Instruction::WriteString {
+                        if_body: vec![Instruction::WriteString {
+                            string: "FIVE OR EIGHT",
+                        }],
+                    },
+                    Instruction::SubAssign {
+                        name: "x",
+                        value: Expression::constant(1),
+                    },
+                    Instruction::WriteString { string: "!\n" },
+                ],
+            },
+        ],
+    };
+    let program = Program {
+        instructions: vec![
+            Instruction::Define {
+                name: "x",
+                value: Expression::constant(10),
+            },
+            Instruction::Define {
+                name: "y",
+                value: Expression::constant(3),
+            },
+            Instruction::While {
+                predicate: Expression::sub(Expression::variable("x"), Expression::constant(4)),
+                body: vec![
+                    Instruction::WriteString {
+                        string: "The detected value was ",
+                    },
+                    Instruction::IfThenElse {
+                        predicate: Expression::or(
+                            Expression::equals(Expression::variable("x"), Expression::constant(5)),
+                            Expression::equals(Expression::variable("x"), Expression::constant(8)),
+                        ),
+                        else_body: vec![Instruction::IfThenElse {
+                            predicate: Expression::sub(
+                                Expression::variable("x"),
+                                Expression::constant(6),
+                            ),
+                            if_body: vec![Instruction::IfThenElse {
+                                predicate: Expression::sub(
+                                    Expression::variable("x"),
+                                    Expression::constant(7),
+                                ),
+                                if_body: vec![Instruction::WriteString { string: "OTHER" }],
+                                else_body: vec![Instruction::WriteString { string: "7" }],
+                            }],
+                            else_body: vec![Instruction::WriteString { string: "SIX" }],
+                        }],
+                        if_body: vec![Instruction::WriteString {
                             string: "FIVE OR EIGHT",
                         }],
                     },

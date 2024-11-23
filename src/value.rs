@@ -74,3 +74,9 @@ impl From<Variable> for Value {
         Self::Variable(variable)
     }
 }
+
+impl From<Owned> for Value {
+    fn from(owned: Owned) -> Self {
+        Self::Variable(owned.into())
+    }
+}

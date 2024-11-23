@@ -7,6 +7,8 @@ pub enum Expression<'a> {
     Not(Box<Expression<'a>>),
     And(Box<Expression<'a>>, Box<Expression<'a>>),
     Or(Box<Expression<'a>>, Box<Expression<'a>>),
+    Equals(Box<Expression<'a>>, Box<Expression<'a>>),
+    NotEquals(Box<Expression<'a>>, Box<Expression<'a>>),
 }
 
 impl<'a> Expression<'a> {
@@ -30,6 +32,12 @@ impl<'a> Expression<'a> {
     }
     pub fn or(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::Or(Box::new(a), Box::new(b))
+    }
+    pub fn equals(a: Expression<'a>, b: Expression<'a>) -> Self {
+        Self::Equals(Box::new(a), Box::new(b))
+    }
+    pub fn not_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
+        Self::NotEquals(Box::new(a), Box::new(b))
     }
 }
 

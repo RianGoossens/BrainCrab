@@ -536,6 +536,34 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
+    fn eval_not_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        match (a, b) {
+            (Value::Constant(a), Value::Constant(b)) => {
+                Ok(Value::Constant(if a != b { 1 } else { 0 }))
+            }
+            (Value::Variable(Variable::Owned(a)), b) => {
+                self.sub_assign(a.address, b)?;
+                Ok(Value::owned(a))
+            }
+            (a, Value::Variable(Variable::Owned(b))) => {
+                self.sub_assign(b.address, a)?;
+                Ok(Value::owned(b))
+            }
+            (a, b) => {
+                let temp = self.new_temp()?;
+                self.add_assign(temp.address, a)?;
+                self.sub_assign(temp.address, b)?;
+
+                Ok(Value::owned(temp))
+            }
+        }
+    }
+
+    fn eval_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        let not_equals = self.eval_not_equals(a, b)?;
+        self.eval_not(not_equals)
+    }
+
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
             Expression::Constant(value) => Ok(Value::constant(value)),
@@ -566,6 +594,16 @@ impl<'a> BrainCrabCompiler<'a> {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
                 self.eval_or(a, b)
+            }
+            Expression::Equals(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_equals(a, b)
+            }
+            Expression::NotEquals(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_not_equals(a, b)
             }
         }
     }
