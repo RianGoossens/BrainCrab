@@ -10,8 +10,8 @@ Here are my upcoming tasks.
 - Refine repl, perhaps use crossterm or even ratatui?
 
 ### Braincrab Language TODO
+- lt, gt, le, ge
 - Multiplication
 - Division
 - Modulo
-- eq, neq, lt, gt, le, ge
 - Types? (u8, bool, structs, arrays...)
