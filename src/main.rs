@@ -224,9 +224,12 @@ fn main() -> io::Result<()> {
     interpreter.run(&bf_program);
     println!("\n{:?}", interpreter.tape()[..10].to_owned());
 
-    let mut parser = Parser::new("'\n'").unwrap();
-    let number = parser.parse_constant().unwrap();
-    println!("Parsed a number: {:?}", number);
+    let mut parser = Parser::new();
+    let number = parser.parse_definition("let this_is_a_variable = '\n';");
+    match number {
+        Ok(number) => println!("Parsed a number: {:?} {}", number.value, number.span),
+        Err(error) => println!("Error: {error}"),
+    }
     /*
     let cli = Cli::parse();
 

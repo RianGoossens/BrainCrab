@@ -69,6 +69,7 @@ impl<'a> From<&'a str> for Expression<'a> {
     }
 }
 
+#[derive(Debug)]
 pub enum Instruction<'a> {
     Define {
         name: &'a str,
@@ -109,6 +110,7 @@ pub enum Instruction<'a> {
     },
 }
 
+#[derive(Debug)]
 pub struct Program<'a> {
     pub instructions: Vec<Instruction<'a>>,
 }

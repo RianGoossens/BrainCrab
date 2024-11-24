@@ -18,8 +18,7 @@ Here are my upcoming tasks.
 - Start reusing cli
 
 #### Parser Todo
-- Parse literal characters
-- Parse variable names
+- Parse escaped characters
 - Parse assignments
 - Parse add-assignment
 - Parse sub-assignment
