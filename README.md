@@ -23,8 +23,10 @@ Here are my upcoming tasks.
 - Parse add-assignment
 - Parse sub-assignment
 - Parse expressions
-  - variables
-  - unaries
   - binaries
   - order of operations!
   - parens
+- Parse if
+- Parse while
+- Parse read/write
+- macros?

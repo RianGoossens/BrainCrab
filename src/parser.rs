@@ -73,6 +73,8 @@ pub struct Parser {
     index: usize,
 }
 
+type SubParser<'a, A> = dyn Fn(&mut Parser, &'a str) -> ParseResult<'a, A>;
+
 impl Parser {
     pub fn new() -> Self {
         Self { index: 0 }
@@ -136,7 +138,7 @@ impl Parser {
     pub fn one_of<'a, A>(
         &mut self,
         string: &'a str,
-        parsers: &[&dyn Fn(&mut Self, &'a str) -> ParseResult<'a, A>],
+        parsers: &[&SubParser<'a, A>],
     ) -> ParseResult<'a, A> {
         let start_index = self.index;
         for parser in parsers {
@@ -271,6 +273,15 @@ impl Parser {
         result.map_err(|_| ParseErrorMessage::Expected("leaf expression"))
     }
 
+    pub fn parse_not_expression<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+        let start_index = self.index;
+        self.literal(string, "!")?;
+        self.optional(string, Self::whitespace)?;
+        let inner = self.parse_leaf_expression(string)?.value;
+        let result = Expression::not(inner);
+        self.success(string, result, start_index, self.index - start_index)
+    }
+
     pub fn parse_binary_operator<'a>(
         &mut self,
         string: &'a str,
@@ -278,16 +289,16 @@ impl Parser {
         let result = self.one_of(
             string,
             &[
-                &|parser, string| Ok(parser.literal(string, "+")?.with(BinaryOperator::Add)),
-                &|parser, string| Ok(parser.literal(string, "-")?.with(BinaryOperator::Sub)),
-                &|parser, string| Ok(parser.literal(string, "&")?.with(BinaryOperator::And)),
-                &|parser, string| Ok(parser.literal(string, "|")?.with(BinaryOperator::Or)),
-                &|parser, string| Ok(parser.literal(string, "==")?.with(BinaryOperator::Eq)),
-                &|parser, string| Ok(parser.literal(string, "!=")?.with(BinaryOperator::Neq)),
-                &|parser, string| Ok(parser.literal(string, "<=")?.with(BinaryOperator::Leq)),
-                &|parser, string| Ok(parser.literal(string, ">=")?.with(BinaryOperator::Geq)),
-                &|parser, string| Ok(parser.literal(string, "<")?.with(BinaryOperator::Lt)),
-                &|parser, string| Ok(parser.literal(string, ">")?.with(BinaryOperator::Gt)),
+                &|p, s| Ok(p.literal(s, "+")?.with(BinaryOperator::Add)),
+                &|p, s| Ok(p.literal(s, "-")?.with(BinaryOperator::Sub)),
+                &|p, s| Ok(p.literal(s, "&")?.with(BinaryOperator::And)),
+                &|p, s| Ok(p.literal(s, "|")?.with(BinaryOperator::Or)),
+                &|p, s| Ok(p.literal(s, "==")?.with(BinaryOperator::Eq)),
+                &|p, s| Ok(p.literal(s, "!=")?.with(BinaryOperator::Neq)),
+                &|p, s| Ok(p.literal(s, "<=")?.with(BinaryOperator::Leq)),
+                &|p, s| Ok(p.literal(s, ">=")?.with(BinaryOperator::Geq)),
+                &|p, s| Ok(p.literal(s, "<")?.with(BinaryOperator::Lt)),
+                &|p, s| Ok(p.literal(s, ">")?.with(BinaryOperator::Gt)),
             ],
         );
         result.map_err(|_| ParseErrorMessage::Expected("binary operator"))
@@ -301,7 +312,10 @@ impl Parser {
     }
 
     pub fn parse_expression<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
-        let result = self.one_of(string, &[&Self::parse_leaf_expression]);
+        let result = self.one_of(
+            string,
+            &[&Self::parse_not_expression, &Self::parse_leaf_expression],
+        );
         result.map_err(|_| ParseErrorMessage::Expected("expression"))
     }
 
