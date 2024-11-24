@@ -1,14 +1,14 @@
-use crate::ast::Program;
+use crate::ast::{Expression, Program};
 
 #[derive(Debug)]
-pub enum ParseError {
+pub enum ParseErrorMessage {
     NonAsciiProgram,
     UnexpectedEnd,
     FilterFailed,
-    NotFound(&'static str),
+    Expected(&'static str),
 }
 
-pub type ParseResult<A> = Result<A, ParseError>;
+pub type ParseResult<A> = Result<A, ParseErrorMessage>;
 
 pub struct Parser {
     characters: Vec<char>,
@@ -18,13 +18,17 @@ pub struct Parser {
 impl Parser {
     pub fn new(script: &str) -> ParseResult<Self> {
         if !script.is_ascii() {
-            Err(ParseError::NonAsciiProgram)
+            Err(ParseErrorMessage::NonAsciiProgram)
         } else {
             Ok(Parser {
                 characters: script.chars().collect(),
                 char_pointer: 0,
             })
         }
+    }
+
+    pub fn error<A>(&self, message: ParseErrorMessage) -> ParseResult<A> {
+        Err(message)
     }
 
     fn optional<A, P: Fn(&mut Parser) -> ParseResult<A>>(
@@ -65,7 +69,7 @@ impl Parser {
             self.char_pointer += 1;
             Ok(result)
         } else {
-            Err(ParseError::UnexpectedEnd)
+            self.error(ParseErrorMessage::UnexpectedEnd)
         }
     }
 
@@ -78,35 +82,46 @@ impl Parser {
         if filter_function(&parsed) {
             Ok(parsed)
         } else {
-            Err(ParseError::FilterFailed)
+            self.error(ParseErrorMessage::FilterFailed)
         }
     }
 
     fn digit(&mut self) -> ParseResult<u8> {
-        let result = self.filter(Parser::char, |char| char.is_ascii_digit())?;
-        Ok(result.to_digit(10).unwrap() as u8)
+        let result = self.char()?;
+        if let Some(digit) = result.to_digit(10) {
+            Ok(digit as u8)
+        } else {
+            self.error(ParseErrorMessage::Expected("digit"))
+        }
     }
 
     fn literal(&mut self, literal: &'static str) -> ParseResult<&'static str> {
         if !literal.is_ascii() {
-            Err(ParseError::NonAsciiProgram)
+            Err(ParseErrorMessage::NonAsciiProgram)
         } else {
             let literal_characters = literal.chars();
             for char in literal_characters {
-                self.filter(|parser| parser.char(), |value| *value == char)?;
+                let parsed_char = self.char()?;
+                if parsed_char != char {
+                    return self.error(ParseErrorMessage::Expected(literal));
+                }
             }
             Ok(literal)
         }
     }
 
-    fn whitespace(&mut self) -> ParseResult<()> {
+    fn whitespace(&mut self) -> ParseResult<Vec<char>> {
         self.one_or_more(&|parser| {
-            parser.filter(|parser| parser.char(), |char| char.is_whitespace())
-        })?;
-        Ok(())
+            let char = parser.char()?;
+            if char.is_whitespace() {
+                Ok(char)
+            } else {
+                parser.error(ParseErrorMessage::Expected("whitespace"))
+            }
+        })
     }
 
-    pub fn parse_u8(&mut self) -> ParseResult<u8> {
+    pub fn parse_u8_constant(&mut self) -> ParseResult<u8> {
         let mut number = self.digit()?;
         if let Some(digit) = self.optional(&Self::digit) {
             number *= 10;
@@ -117,6 +132,27 @@ impl Parser {
             number += digit;
         }
         Ok(number)
+    }
+
+    pub fn parse_char_constant(&mut self) -> ParseResult<u8> {
+        self.literal("'")?;
+        let char = self.char()?;
+        self.literal("'")?;
+        Ok(char as u8)
+    }
+
+    pub fn parse_constant<'a>(&mut self) -> ParseResult<Expression<'a>> {
+        let u8_constant = self.optional(&Self::parse_u8_constant);
+        if let Some(value) = u8_constant {
+            Ok(value.into())
+        } else {
+            let char_constant = self.optional(&Self::parse_char_constant);
+            if let Some(value) = char_constant {
+                Ok(value.into())
+            } else {
+                self.error(ParseErrorMessage::Expected("constant value"))
+            }
+        }
     }
 
     pub fn parse_program<'a>(&mut self) -> ParseResult<Program<'a>> {

@@ -19,13 +19,11 @@ Here are my upcoming tasks.
 
 #### Parser Todo
 - Parse literal characters
-- Parse constants
 - Parse variable names
 - Parse assignments
 - Parse add-assignment
 - Parse sub-assignment
 - Parse expressions
-  - constants
   - variables
   - unaries
   - binaries

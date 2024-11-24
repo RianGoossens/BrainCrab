@@ -224,9 +224,9 @@ fn main() -> io::Result<()> {
     interpreter.run(&bf_program);
     println!("\n{:?}", interpreter.tape()[..10].to_owned());
 
-    let mut parser = Parser::new("123").unwrap();
-    let number = parser.parse_u8().unwrap();
-    println!("Parsed a number: {}, double it: {}", number, number * 2);
+    let mut parser = Parser::new("'\n'").unwrap();
+    let number = parser.parse_constant().unwrap();
+    println!("Parsed a number: {:?}", number);
     /*
     let cli = Cli::parse();
 
