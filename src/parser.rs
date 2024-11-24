@@ -73,19 +73,6 @@ impl Parser {
         }
     }
 
-    fn filter<A, P: Fn(&mut Self) -> ParseResult<A>, F: Fn(&A) -> bool>(
-        &mut self,
-        parser_function: P,
-        filter_function: F,
-    ) -> ParseResult<A> {
-        let parsed = parser_function(self)?;
-        if filter_function(&parsed) {
-            Ok(parsed)
-        } else {
-            self.error(ParseErrorMessage::FilterFailed)
-        }
-    }
-
     fn digit(&mut self) -> ParseResult<u8> {
         let result = self.char()?;
         if let Some(digit) = result.to_digit(10) {
