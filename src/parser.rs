@@ -35,6 +35,14 @@ impl<'a, A> Parsed<'a, A> {
             len: self.len,
         }
     }
+    pub fn with<B>(self, value: B) -> Parsed<'a, B> {
+        Parsed {
+            value,
+            span: self.span,
+            start: self.start,
+            len: self.len,
+        }
+    }
     pub fn into_span(self) -> Parsed<'a, &'a str> {
         Parsed {
             value: self.span,
@@ -43,6 +51,20 @@ impl<'a, A> Parsed<'a, A> {
             len: self.len,
         }
     }
+}
+
+#[derive(Debug)]
+pub enum BinaryOperator {
+    Add,
+    Sub,
+    And,
+    Or,
+    Eq,
+    Neq,
+    Lt,
+    Gt,
+    Leq,
+    Geq,
 }
 
 pub type ParseResult<'a, A> = Result<Parsed<'a, A>, ParseErrorMessage>;
@@ -109,6 +131,23 @@ impl Parser {
             total_length += len;
         }
         self.success(string, result, start_location, total_length)
+    }
+
+    pub fn one_of<'a, A>(
+        &mut self,
+        string: &'a str,
+        parsers: &[&dyn Fn(&mut Self, &'a str) -> ParseResult<'a, A>],
+    ) -> ParseResult<'a, A> {
+        let start_index = self.index;
+        for parser in parsers {
+            let result = parser(self, string);
+            if result.is_ok() {
+                return result;
+            }
+
+            self.index = start_index;
+        }
+        self.error(ParseErrorMessage::Expected("one_of failed"))
     }
 
     fn char<'a>(&mut self, string: &'a str) -> ParseResult<'a, char> {
@@ -205,7 +244,7 @@ impl Parser {
         }
     }
 
-    pub fn parse_variable<'a>(&mut self, string: &'a str) -> ParseResult<'a, &'a str> {
+    pub fn parse_variable_name<'a>(&mut self, string: &'a str) -> ParseResult<'a, &'a str> {
         let variable_name = self.one_or_more(string, |parser, string| {
             let start_location = parser.index;
             let character = parser.char(string)?.value;
@@ -219,15 +258,62 @@ impl Parser {
         Ok(variable_name.into_span())
     }
 
+    pub fn parse_variable<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+        let result = self.parse_variable_name(string)?;
+        Ok(result.map(|x| x.into()))
+    }
+
+    pub fn parse_leaf_expression<'a>(
+        &mut self,
+        string: &'a str,
+    ) -> ParseResult<'a, Expression<'a>> {
+        let result = self.one_of(string, &[&Self::parse_constant, &Self::parse_variable]);
+        result.map_err(|_| ParseErrorMessage::Expected("leaf expression"))
+    }
+
+    pub fn parse_binary_operator<'a>(
+        &mut self,
+        string: &'a str,
+    ) -> ParseResult<'a, BinaryOperator> {
+        let result = self.one_of(
+            string,
+            &[
+                &|parser, string| Ok(parser.literal(string, "+")?.with(BinaryOperator::Add)),
+                &|parser, string| Ok(parser.literal(string, "-")?.with(BinaryOperator::Sub)),
+                &|parser, string| Ok(parser.literal(string, "&")?.with(BinaryOperator::And)),
+                &|parser, string| Ok(parser.literal(string, "|")?.with(BinaryOperator::Or)),
+                &|parser, string| Ok(parser.literal(string, "==")?.with(BinaryOperator::Eq)),
+                &|parser, string| Ok(parser.literal(string, "!=")?.with(BinaryOperator::Neq)),
+                &|parser, string| Ok(parser.literal(string, "<=")?.with(BinaryOperator::Leq)),
+                &|parser, string| Ok(parser.literal(string, ">=")?.with(BinaryOperator::Geq)),
+                &|parser, string| Ok(parser.literal(string, "<")?.with(BinaryOperator::Lt)),
+                &|parser, string| Ok(parser.literal(string, ">")?.with(BinaryOperator::Gt)),
+            ],
+        );
+        result.map_err(|_| ParseErrorMessage::Expected("binary operator"))
+    }
+
+    pub fn parse_binary_expression<'a>(
+        &mut self,
+        string: &'a str,
+    ) -> ParseResult<'a, Expression<'a>> {
+        todo!()
+    }
+
+    pub fn parse_expression<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+        let result = self.one_of(string, &[&Self::parse_leaf_expression]);
+        result.map_err(|_| ParseErrorMessage::Expected("expression"))
+    }
+
     pub fn parse_definition<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
         let start_location = self.index;
         self.literal(string, "let")?;
         self.whitespace(string)?;
-        let name = self.parse_variable(string)?.value;
+        let name = self.parse_variable_name(string)?.value;
         self.optional(string, Self::whitespace)?;
         self.literal(string, "=")?;
         self.optional(string, Self::whitespace)?;
-        let expression = self.parse_constant(string)?.value;
+        let expression = self.parse_expression(string)?.value;
         self.optional(string, Self::whitespace)?;
         self.literal(string, ";")?;
         let result = Instruction::Define {

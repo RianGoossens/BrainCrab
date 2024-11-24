@@ -2,11 +2,14 @@
 pub enum Expression<'a> {
     Constant(u8),
     Variable(&'a str),
+
     Add(Box<Expression<'a>>, Box<Expression<'a>>),
     Sub(Box<Expression<'a>>, Box<Expression<'a>>),
+
     Not(Box<Expression<'a>>),
     And(Box<Expression<'a>>, Box<Expression<'a>>),
     Or(Box<Expression<'a>>, Box<Expression<'a>>),
+
     Equals(Box<Expression<'a>>, Box<Expression<'a>>),
     NotEquals(Box<Expression<'a>>, Box<Expression<'a>>),
     LessThanEquals(Box<Expression<'a>>, Box<Expression<'a>>),

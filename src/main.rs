@@ -225,9 +225,9 @@ fn main() -> io::Result<()> {
     println!("\n{:?}", interpreter.tape()[..10].to_owned());
 
     let mut parser = Parser::new();
-    let number = parser.parse_definition("let this_is_a_variable = '\n';");
+    let number = parser.parse_definition("let this_is_a_variable = var;");
     match number {
-        Ok(number) => println!("Parsed a number: {:?} {}", number.value, number.span),
+        Ok(number) => println!("Parsed: {:?} {}", number.value, number.span),
         Err(error) => println!("Error: {error}"),
     }
     /*
