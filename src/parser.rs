@@ -265,11 +265,28 @@ impl Parser {
         Ok(result.map(|x| x.into()))
     }
 
+    pub fn parse_parens<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+        let start_index = self.index;
+        self.literal(string, "(")?;
+        self.optional(string, Self::whitespace)?;
+        let result = self.parse_expression(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ")")?;
+        self.success(string, result, start_index, self.index - start_index)
+    }
+
     pub fn parse_leaf_expression<'a>(
         &mut self,
         string: &'a str,
     ) -> ParseResult<'a, Expression<'a>> {
-        let result = self.one_of(string, &[&Self::parse_constant, &Self::parse_variable]);
+        let result = self.one_of(
+            string,
+            &[
+                &Self::parse_constant,
+                &Self::parse_variable,
+                &Self::parse_parens,
+            ],
+        );
         result.map_err(|_| ParseErrorMessage::Expected("leaf expression"))
     }
 

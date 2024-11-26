@@ -19,7 +19,6 @@ Here are my upcoming tasks.
 
 #### Parser Todo
 - Parse expressions
-  - parens
   - binaries
   - order of operations!
 - Parse read/write
