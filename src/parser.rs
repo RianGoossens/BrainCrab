@@ -266,12 +266,16 @@ impl Parser {
         self.success(string, result, start_location, self.index - start_location)
     }
 
-    fn until<'a, A, P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>>(
+    fn until<'a, A, P, E>(
         &mut self,
         string: &'a str,
         parse_function: P,
-        parse_end: &SubParser<'a, ()>,
-    ) -> ParseResult<'a, Vec<A>> {
+        parse_end: E,
+    ) -> ParseResult<'a, Vec<A>>
+    where
+        P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>,
+        E: Fn(&mut Self, &'a str) -> ParseResult<'a, ()>,
+    {
         let start_location = self.index;
         let mut result = vec![];
         loop {
@@ -344,9 +348,31 @@ impl Parser {
         let start_location = self.index;
         let result = self.char(string)?.value;
         if let Some(digit) = result.to_digit(10) {
-            self.success(string, digit as u8, start_location, 1)
+            self.success(
+                string,
+                digit as u8,
+                start_location,
+                self.index - start_location,
+            )
         } else {
             self.error(string, ParseErrorMessage::Expected("digit"))
+        }
+    }
+
+    fn escaped_char<'a>(&mut self, string: &'a str) -> ParseResult<'a, char> {
+        let start_location = self.index;
+        let escaped = self.char(string)?.value;
+        if escaped == '\\' {
+            let result = self.char(string)?.value;
+            let result = match result {
+                'n' => '\n',
+                't' => '\t',
+                'r' => '\r',
+                _ => result,
+            };
+            self.success(string, result, start_location, self.index - start_location)
+        } else {
+            self.error(string, ParseErrorMessage::Expected("escaped character"))
         }
     }
 
@@ -399,7 +425,9 @@ impl Parser {
     pub fn parse_char_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, u8> {
         let start_location = self.index;
         self.literal(string, "'")?;
-        let char = self.char(string)?.value;
+        let char = self
+            .one_of(string, &[&Self::escaped_char, &Self::char])?
+            .value;
         self.literal(string, "'")?;
         self.success(
             string,
@@ -550,8 +578,49 @@ impl Parser {
         self.success(string, result, start_location, self.index - start_location)
     }
 
+    pub fn parse_read<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        let start_location = self.index;
+        self.literal(string, "read")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "(")?;
+        self.optional(string, Self::whitespace)?;
+        let variable_name = self.parse_variable_name(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ")")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ";")?;
+        let result = Instruction::Read {
+            name: variable_name,
+        };
+        self.success(string, result, start_location, self.index - start_location)
+    }
+
+    pub fn parse_write<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        let start_location = self.index;
+        self.literal(string, "write")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "(")?;
+        self.optional(string, Self::whitespace)?;
+        let variable_name = self.parse_variable_name(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ")")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ";")?;
+        let result = Instruction::Write {
+            name: variable_name,
+        };
+        self.success(string, result, start_location, self.index - start_location)
+    }
+
     pub fn parse_instruction<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
-        self.one_of(string, &[&Self::parse_definition])
+        self.one_of(
+            string,
+            &[
+                &Self::parse_definition,
+                &Self::parse_read,
+                &Self::parse_write,
+            ],
+        )
     }
 
     pub fn parse_program<'a>(&mut self, string: &'a str) -> ParseResult<'a, Program<'a>> {
@@ -563,7 +632,7 @@ impl Parser {
                     p.optional(s, Self::whitespace)?;
                     p.parse_instruction(s)
                 },
-                &Self::eof,
+                Self::eof,
             )?
             .value;
         self.optional(string, Self::whitespace)?;

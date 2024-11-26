@@ -740,6 +740,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 Instruction::Read { name } => {
                     let address = self.get_address(name)?;
                     self.move_pointer_to(address);
+                    self.zero(address);
                     self.read_current();
                 }
                 Instruction::WriteString { string } => {

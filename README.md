@@ -19,11 +19,9 @@ Here are my upcoming tasks.
 - Const vs mut
 
 #### Parser Todo
-- Parse read/write
 - Parse assignments
 - Parse add-assignment
 - Parse sub-assignment
 - Parse while
 - Parse if
 - macros?
-- Parse escaped characters
