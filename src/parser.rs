@@ -464,11 +464,13 @@ impl Parser {
 
     pub fn parse_variable_name<'a>(&mut self, string: &'a str) -> ParseResult<'a, &'a str> {
         let start_index = self.index;
-        let result = self.parse_chars_while(string, |x| x.is_ascii_alphabetic() || x == '_')?;
-        if result.len == 0 {
+        let result = self
+            .parse_chars_while(string, |x| x.is_ascii_alphabetic() || x == '_')?
+            .value;
+        if result.is_empty() {
             self.error(string, ParseErrorMessage::Expected("variable name"))
         } else {
-            self.success(string, result.value, start_index, self.index - start_index)
+            self.success(string, result, start_index, self.index - start_index)
         }
     }
 
