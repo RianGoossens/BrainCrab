@@ -134,7 +134,7 @@ fn main() -> io::Result<()> {
             },
         ],
     };
-    let program = Program {
+    let _program = Program {
         instructions: vec![
             Instruction::Define {
                 name: "x",

@@ -19,6 +19,53 @@ impl Display for ParseErrorMessage {
     }
 }
 
+#[derive(Debug)]
+pub struct ParseError<'a> {
+    message: ParseErrorMessage,
+    string: &'a str,
+    index: usize,
+}
+
+impl<'a> Display for ParseError<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut line_start = 0;
+        let mut line_end = usize::MAX;
+        for (i, c) in self.string.char_indices() {
+            if c == '\n' {
+                if i < self.index {
+                    line_start = i;
+                } else {
+                    line_end = i;
+                    break;
+                }
+            }
+            if i >= self.index {
+                break;
+            }
+        }
+        if line_end == usize::MAX {
+            line_end = self.string.len();
+        }
+        let index_on_line = self.index - line_start;
+
+        writeln!(f, "{}", &self.string[line_start..line_end])?;
+        for _ in 0..index_on_line {
+            write!(f, " ")?;
+        }
+        writeln!(f, "^")?;
+        for _ in 0..index_on_line {
+            write!(f, " ")?;
+        }
+        writeln!(f, "| {}", self.message)
+    }
+}
+
+impl<'a> ParseError<'a> {
+    pub fn with_message(self, message: ParseErrorMessage) -> Self {
+        Self { message, ..self }
+    }
+}
+
 pub struct Parsed<'a, A> {
     pub value: A,
     pub span: &'a str,
@@ -145,7 +192,7 @@ impl<'a> ExpressionParseTree<'a> {
     }
 }
 
-pub type ParseResult<'a, A> = Result<Parsed<'a, A>, ParseErrorMessage>;
+pub type ParseResult<'a, A> = Result<Parsed<'a, A>, ParseError<'a>>;
 
 pub struct Parser {
     index: usize,
@@ -175,8 +222,12 @@ impl Parser {
         })
     }
 
-    pub fn error<'a, A>(&self, message: ParseErrorMessage) -> ParseResult<'a, A> {
-        Err(message)
+    pub fn error<'a, A>(&self, string: &'a str, message: ParseErrorMessage) -> ParseResult<'a, A> {
+        Err(ParseError {
+            message,
+            string,
+            index: self.index,
+        })
     }
 
     fn optional<'a, A, P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>>(
@@ -219,15 +270,30 @@ impl Parser {
         parsers: &[&SubParser<'a, A>],
     ) -> ParseResult<'a, A> {
         let start_index = self.index;
+        // The best error message is from the parser that parsed the most before erroring.
+        let mut best_error_index = start_index;
+        let mut best_error_message = ParseErrorMessage::Expected("No parsers provided");
         for parser in parsers {
             let result = parser(self, string);
             if result.is_ok() {
                 return result;
             }
+            match result {
+                Ok(_) => return result,
+                Err(error) => {
+                    if error.index > best_error_index {
+                        best_error_index = error.index;
+                        best_error_message = error.message;
+                    }
+                }
+            }
 
             self.index = start_index;
         }
-        self.error(ParseErrorMessage::Expected("one_of failed"))
+        self.error(string, best_error_message).map_err(|mut error| {
+            error.index = best_error_index;
+            error
+        })
     }
 
     fn char<'a>(&mut self, string: &'a str) -> ParseResult<'a, char> {
@@ -236,7 +302,7 @@ impl Parser {
             let result = string.as_bytes()[start_index] as char;
             self.success(string, result, start_index, 1)
         } else {
-            self.error(ParseErrorMessage::UnexpectedEnd)
+            self.error(string, ParseErrorMessage::UnexpectedEnd)
         }
     }
 
@@ -246,7 +312,7 @@ impl Parser {
         if let Some(digit) = result.to_digit(10) {
             self.success(string, digit as u8, start_location, 1)
         } else {
-            self.error(ParseErrorMessage::Expected("digit"))
+            self.error(string, ParseErrorMessage::Expected("digit"))
         }
     }
 
@@ -255,15 +321,15 @@ impl Parser {
         string: &'a str,
         literal: &'static str,
     ) -> ParseResult<'a, &'static str> {
-        if !literal.is_ascii() {
-            Err(ParseErrorMessage::NonAsciiProgram)
+        assert!(
+            literal.is_ascii(),
+            "Literal provided for parsing is not ascii: \"{literal}\""
+        );
+        let start_location = self.index;
+        if string[start_location..].starts_with(literal) {
+            self.success(string, literal, start_location, literal.len())
         } else {
-            let start_location = self.index;
-            if string[start_location..].starts_with(literal) {
-                self.success(string, literal, start_location, literal.len())
-            } else {
-                self.error(ParseErrorMessage::Expected(literal))
-            }
+            self.error(string, ParseErrorMessage::Expected(literal))
         }
     }
 
@@ -274,7 +340,7 @@ impl Parser {
             if parsed.is_whitespace() {
                 parser.success(string, parsed, start_value, 1)
             } else {
-                parser.error(ParseErrorMessage::Expected("whitespace"))
+                parser.error(string, ParseErrorMessage::Expected("whitespace"))
             }
         })
     }
@@ -319,7 +385,7 @@ impl Parser {
             if let Some(value) = char_constant.value {
                 self.success(string, value.into(), start_location, char_constant.len)
             } else {
-                self.error(ParseErrorMessage::Expected("constant value"))
+                self.error(string, ParseErrorMessage::Expected("constant value"))
             }
         }
     }
@@ -332,7 +398,7 @@ impl Parser {
             {
                 parser.success(string, character, start_location, 1)
             } else {
-                parser.error(ParseErrorMessage::Expected("variable name"))
+                parser.error(string, ParseErrorMessage::Expected("variable name"))
             }
         })?;
         Ok(variable_name.into_span())
@@ -357,7 +423,7 @@ impl Parser {
         &mut self,
         string: &'a str,
     ) -> ParseResult<'a, Expression<'a>> {
-        let result = self.one_of(
+        self.one_of(
             string,
             &[
                 &Self::parse_constant,
@@ -365,8 +431,7 @@ impl Parser {
                 &Self::parse_parens,
                 &Self::parse_not_expression,
             ],
-        );
-        result.map_err(|_| ParseErrorMessage::Expected("leaf expression"))
+        )
     }
 
     pub fn parse_not_expression<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
@@ -397,7 +462,7 @@ impl Parser {
                 &|p, s| Ok(p.literal(s, ">")?.with(BinaryOperator::Gt)),
             ],
         );
-        result.map_err(|_| ParseErrorMessage::Expected("binary operator"))
+        result.map_err(|x| x.with_message(ParseErrorMessage::Expected("binary operator")))
     }
 
     pub fn parse_binary_expression<'a>(

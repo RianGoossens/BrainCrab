@@ -27,4 +27,3 @@ Here are my upcoming tasks.
 - Parse if
 - macros?
 - Parse escaped characters
-- Better parse errors

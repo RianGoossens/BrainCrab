@@ -9,9 +9,12 @@ pub fn main() -> Result<()> {
 
     let mut parser = Parser::new();
 
-    let definition = parser.parse_definition(&script).unwrap().value;
+    let parsed = parser.parse_definition(&script);
 
-    println!("{definition:#?}");
+    match parsed {
+        Ok(value) => println!("{:#?}", value.value),
+        Err(error) => eprintln!("{error}"),
+    }
 
     Ok(())
 }
