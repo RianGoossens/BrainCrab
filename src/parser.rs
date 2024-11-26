@@ -67,6 +67,84 @@ pub enum BinaryOperator {
     Geq,
 }
 
+impl BinaryOperator {
+    pub fn create_expression<'a>(&self, a: Expression<'a>, b: Expression<'a>) -> Expression<'a> {
+        match self {
+            BinaryOperator::Add => Expression::add(a, b),
+            BinaryOperator::Sub => Expression::sub(a, b),
+            BinaryOperator::And => Expression::and(a, b),
+            BinaryOperator::Or => Expression::or(a, b),
+            BinaryOperator::Eq => Expression::equals(a, b),
+            BinaryOperator::Neq => Expression::not_equals(a, b),
+            BinaryOperator::Lt => Expression::less_than(a, b),
+            BinaryOperator::Gt => Expression::greater_than(a, b),
+            BinaryOperator::Leq => Expression::less_than_equals(a, b),
+            BinaryOperator::Geq => Expression::greater_than_equals(a, b),
+        }
+    }
+
+    pub fn precedence(&self) -> u8 {
+        match self {
+            BinaryOperator::Add => 4,
+            BinaryOperator::Sub => 4,
+            BinaryOperator::Lt => 6,
+            BinaryOperator::Gt => 6,
+            BinaryOperator::Leq => 6,
+            BinaryOperator::Geq => 6,
+            BinaryOperator::Eq => 7,
+            BinaryOperator::Neq => 7,
+            BinaryOperator::And => 8,
+            BinaryOperator::Or => 9,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ExpressionParseTree<'a> {
+    Leaf(Expression<'a>),
+    Branch(
+        BinaryOperator,
+        Box<ExpressionParseTree<'a>>,
+        Box<ExpressionParseTree<'a>>,
+    ),
+}
+
+impl<'a> ExpressionParseTree<'a> {
+    pub fn leaf(expression: Expression<'a>) -> Self {
+        Self::Leaf(expression)
+    }
+    pub fn branch(
+        operator: BinaryOperator,
+        a: ExpressionParseTree<'a>,
+        b: ExpressionParseTree<'a>,
+    ) -> Self {
+        Self::Branch(operator, Box::new(a), Box::new(b))
+    }
+    pub fn extend(self, new_operator: BinaryOperator, rhs: Expression<'a>) -> Self {
+        let rhs = Self::leaf(rhs);
+        match self {
+            ExpressionParseTree::Leaf(_) => Self::branch(new_operator, self, rhs),
+            ExpressionParseTree::Branch(current_operator, a, b) => {
+                if new_operator.precedence() > current_operator.precedence() {
+                    Self::branch(new_operator, Self::branch(current_operator, *a, *b), rhs)
+                } else {
+                    Self::branch(current_operator, *a, Self::branch(new_operator, *b, rhs))
+                }
+            }
+        }
+    }
+    pub fn into_expression(self) -> Expression<'a> {
+        match self {
+            ExpressionParseTree::Leaf(expression) => expression,
+            ExpressionParseTree::Branch(binary_operator, a, b) => {
+                let a = a.into_expression();
+                let b = b.into_expression();
+                binary_operator.create_expression(a, b)
+            }
+        }
+    }
+}
+
 pub type ParseResult<'a, A> = Result<Parsed<'a, A>, ParseErrorMessage>;
 
 pub struct Parser {
@@ -285,6 +363,7 @@ impl Parser {
                 &Self::parse_constant,
                 &Self::parse_variable,
                 &Self::parse_parens,
+                &Self::parse_not_expression,
             ],
         );
         result.map_err(|_| ParseErrorMessage::Expected("leaf expression"))
@@ -325,15 +404,33 @@ impl Parser {
         &mut self,
         string: &'a str,
     ) -> ParseResult<'a, Expression<'a>> {
-        todo!()
+        let start_index = self.index;
+        let first_expression = self.parse_leaf_expression(string)?.value;
+        let mut parse_tree = ExpressionParseTree::leaf(first_expression);
+        while let Some((operator, next_expression)) = self
+            .optional(string, |p, s| {
+                let start_index = p.index;
+                p.optional(s, Self::whitespace)?;
+                let operator = p.parse_binary_operator(s)?.value;
+                p.optional(s, Self::whitespace)?;
+                let next_expression = p.parse_leaf_expression(string)?.value;
+                p.success(
+                    string,
+                    (operator, next_expression),
+                    start_index,
+                    p.index - start_index,
+                )
+            })?
+            .value
+        {
+            parse_tree = parse_tree.extend(operator, next_expression);
+        }
+        let result = parse_tree.into_expression();
+        self.success(string, result, start_index, self.index - start_index)
     }
 
     pub fn parse_expression<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
-        let result = self.one_of(
-            string,
-            &[&Self::parse_not_expression, &Self::parse_leaf_expression],
-        );
-        result.map_err(|_| ParseErrorMessage::Expected("expression"))
+        self.parse_binary_expression(string)
     }
 
     pub fn parse_definition<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
