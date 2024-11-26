@@ -18,15 +18,15 @@ Here are my upcoming tasks.
 - Start reusing cli
 
 #### Parser Todo
-- Parse escaped characters
+- Parse expressions
+  - parens
+  - binaries
+  - order of operations!
+- Parse read/write
 - Parse assignments
 - Parse add-assignment
 - Parse sub-assignment
-- Parse expressions
-  - binaries
-  - order of operations!
-  - parens
-- Parse if
 - Parse while
-- Parse read/write
+- Parse if
 - macros?
+- Parse escaped characters
