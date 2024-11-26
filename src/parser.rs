@@ -87,14 +87,6 @@ impl<'a, A> Parsed<'a, A> {
             len: self.len,
         }
     }
-    pub fn into_span(self) -> Parsed<'a, &'a str> {
-        Parsed {
-            value: self.span,
-            span: self.span,
-            start: self.start,
-            len: self.len,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -246,6 +238,24 @@ impl Parser {
         } else {
             self.error(string, ParseErrorMessage::Expected("EOF"))
         }
+    }
+
+    fn parse_chars_while<'a, F: Fn(char) -> bool>(
+        &mut self,
+        string: &'a str,
+        filter: F,
+    ) -> ParseResult<'a, &'a str> {
+        let start_index = self.index;
+        let mut end_index = string.len();
+        for (i, char) in string[start_index..].char_indices() {
+            if !filter(char) {
+                end_index = start_index + i;
+                break;
+            }
+        }
+        let slice = &string[start_index..end_index];
+        println!("SLICE IS {}", slice);
+        self.success(string, slice, start_index, end_index - start_index)
     }
 
     fn one_or_more<'a, A, P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>>(
@@ -453,17 +463,13 @@ impl Parser {
     }
 
     pub fn parse_variable_name<'a>(&mut self, string: &'a str) -> ParseResult<'a, &'a str> {
-        let variable_name = self.one_or_more(string, |parser, string| {
-            let start_location = parser.index;
-            let character = parser.char(string)?.value;
-            if character.is_ascii_alphabetic() && character.is_ascii_lowercase() || character == '_'
-            {
-                parser.success(string, character, start_location, 1)
-            } else {
-                parser.error(string, ParseErrorMessage::Expected("variable name"))
-            }
-        })?;
-        Ok(variable_name.into_span())
+        let start_index = self.index;
+        let result = self.parse_chars_while(string, |x| x.is_ascii_alphabetic() || x == '_')?;
+        if result.len == 0 {
+            self.error(string, ParseErrorMessage::Expected("variable name"))
+        } else {
+            self.success(string, result.value, start_index, self.index - start_index)
+        }
     }
 
     pub fn parse_variable<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
