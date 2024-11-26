@@ -32,15 +32,12 @@ impl<'a> Display for ParseError<'a> {
         let mut line_end = usize::MAX;
         for (i, c) in self.string.char_indices() {
             if c == '\n' {
-                if i < self.index {
+                if i <= self.index {
                     line_start = i;
                 } else {
                     line_end = i;
                     break;
                 }
-            }
-            if i >= self.index {
-                break;
             }
         }
         if line_end == usize::MAX {
@@ -49,11 +46,11 @@ impl<'a> Display for ParseError<'a> {
         let index_on_line = self.index - line_start;
 
         writeln!(f, "{}", &self.string[line_start..line_end])?;
-        for _ in 0..index_on_line {
+        for _ in 0..index_on_line - 1 {
             write!(f, " ")?;
         }
         writeln!(f, "^")?;
-        for _ in 0..index_on_line {
+        for _ in 0..index_on_line - 1 {
             write!(f, " ")?;
         }
         writeln!(f, "| {}", self.message)
@@ -243,6 +240,14 @@ impl Parser {
         }
     }
 
+    fn eof<'a>(&mut self, string: &'a str) -> ParseResult<'a, ()> {
+        if self.index == string.len() {
+            self.success(string, (), self.index, 0)
+        } else {
+            self.error(string, ParseErrorMessage::Expected("EOF"))
+        }
+    }
+
     fn one_or_more<'a, A, P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>>(
         &mut self,
         string: &'a str,
@@ -250,18 +255,47 @@ impl Parser {
     ) -> ParseResult<'a, Vec<A>> {
         let start_location = self.index;
         let first_value = parse_function(self, string)?;
-        let mut total_length = first_value.len;
         let mut result = vec![first_value.value];
         while let Parsed {
             value: Some(element),
-            len,
             ..
         } = self.optional(string, &parse_function)?
         {
             result.push(element);
-            total_length += len;
         }
-        self.success(string, result, start_location, total_length)
+        self.success(string, result, start_location, self.index - start_location)
+    }
+
+    fn until<'a, A, P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>>(
+        &mut self,
+        string: &'a str,
+        parse_function: P,
+        parse_end: &SubParser<'a, ()>,
+    ) -> ParseResult<'a, Vec<A>> {
+        let start_location = self.index;
+        let mut result = vec![];
+        loop {
+            let start_index = self.index;
+            match parse_function(self, string) {
+                Ok(parsed) => {
+                    result.push(parsed.value);
+                }
+                Err(error) => {
+                    self.index = start_index;
+                    let end_parse = parse_end(self, string);
+                    if end_parse.is_ok() {
+                        return self.success(
+                            string,
+                            result,
+                            start_location,
+                            self.index - start_location,
+                        );
+                    } else {
+                        return Err(error);
+                    }
+                }
+            }
+        }
     }
 
     pub fn one_of<'a, A>(
@@ -516,8 +550,32 @@ impl Parser {
         self.success(string, result, start_location, self.index - start_location)
     }
 
-    pub fn parse_program<'a>(&mut self, _string: &'a str) -> ParseResult<'a, Program<'a>> {
-        todo!()
+    pub fn parse_instruction<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        self.one_of(string, &[&Self::parse_definition])
+    }
+
+    pub fn parse_program<'a>(&mut self, string: &'a str) -> ParseResult<'a, Program<'a>> {
+        let start_index = self.index;
+        let instructions = self
+            .until(
+                string,
+                |p, s| {
+                    p.optional(s, Self::whitespace)?;
+                    p.parse_instruction(s)
+                },
+                &Self::eof,
+            )?
+            .value;
+        self.optional(string, Self::whitespace)?;
+        let program = Program { instructions };
+
+        if self.index == string.len() {
+            self.success(string, program, start_index, self.index - start_index)
+        } else {
+            println!("{program:?}");
+            println!("{} vs {}", string.len(), self.index);
+            self.error(string, ParseErrorMessage::Expected("EOF"))
+        }
     }
 }
 
