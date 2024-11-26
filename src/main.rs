@@ -3,7 +3,7 @@ mod allocator;
 mod ast;
 mod cli;
 mod compiler;
-mod parser;
+pub mod parser;
 mod value;
 
 use std::io;

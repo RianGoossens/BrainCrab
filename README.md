@@ -16,11 +16,9 @@ Here are my upcoming tasks.
 - Types? (u8, bool, structs, arrays...)
 - Macros
 - Start reusing cli
+- Const vs mut
 
 #### Parser Todo
-- Parse expressions
-  - binaries
-  - order of operations!
 - Parse read/write
 - Parse assignments
 - Parse add-assignment
@@ -29,3 +27,4 @@ Here are my upcoming tasks.
 - Parse if
 - macros?
 - Parse escaped characters
+- Better parse errors
