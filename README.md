@@ -19,9 +19,6 @@ Here are my upcoming tasks.
 - Const vs mut
 
 #### Parser Todo
-- Parse assignments
-- Parse add-assignment
-- Parse sub-assignment
 - Parse while
 - Parse if
 - macros?

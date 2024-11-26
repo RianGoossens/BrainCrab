@@ -254,7 +254,6 @@ impl Parser {
             }
         }
         let slice = &string[start_index..end_index];
-        println!("SLICE IS {}", slice);
         self.success(string, slice, start_index, end_index - start_index)
     }
 
@@ -586,6 +585,60 @@ impl Parser {
         self.success(string, result, start_location, self.index - start_location)
     }
 
+    pub fn parse_assignment<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        let start_location = self.index;
+        let name = self.parse_variable_name(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "=")?;
+        self.optional(string, Self::whitespace)?;
+        let expression = self.parse_expression(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ";")?;
+        let result = Instruction::Assign {
+            name,
+            value: expression,
+        };
+        self.success(string, result, start_location, self.index - start_location)
+    }
+
+    pub fn parse_add_assignment<'a>(
+        &mut self,
+        string: &'a str,
+    ) -> ParseResult<'a, Instruction<'a>> {
+        let start_location = self.index;
+        let name = self.parse_variable_name(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "+=")?;
+        self.optional(string, Self::whitespace)?;
+        let expression = self.parse_expression(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ";")?;
+        let result = Instruction::AddAssign {
+            name,
+            value: expression,
+        };
+        self.success(string, result, start_location, self.index - start_location)
+    }
+
+    pub fn parse_sub_assignment<'a>(
+        &mut self,
+        string: &'a str,
+    ) -> ParseResult<'a, Instruction<'a>> {
+        let start_location = self.index;
+        let name = self.parse_variable_name(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "-=")?;
+        self.optional(string, Self::whitespace)?;
+        let expression = self.parse_expression(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ";")?;
+        let result = Instruction::SubAssign {
+            name,
+            value: expression,
+        };
+        self.success(string, result, start_location, self.index - start_location)
+    }
+
     pub fn parse_read<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
         let start_location = self.index;
         self.literal(string, "read")?;
@@ -625,6 +678,9 @@ impl Parser {
             string,
             &[
                 &Self::parse_definition,
+                &Self::parse_assignment,
+                &Self::parse_add_assignment,
+                &Self::parse_sub_assignment,
                 &Self::parse_read,
                 &Self::parse_write,
             ],
