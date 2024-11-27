@@ -673,8 +673,18 @@ impl Parser {
         self.success(string, result, start_index, self.index - start_index)
     }
 
-    pub fn parse_while<'a>(&mut self, _string: &'a str) -> ParseResult<'a, Instruction<'a>> {
-        todo!()
+    pub fn parse_while<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        let start_index = self.index;
+        self.literal(string, "while")?;
+        self.whitespace(string)?;
+        let predicate = self.parse_expression(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "{")?;
+        let body = self.parse_instructions(string)?.value;
+        self.literal(string, "}")?;
+
+        let result = Instruction::While { predicate, body };
+        self.success(string, result, start_index, self.index - start_index)
     }
 
     pub fn parse_if_else<'a>(&mut self, _string: &'a str) -> ParseResult<'a, Instruction<'a>> {
@@ -692,6 +702,7 @@ impl Parser {
                 &Self::parse_read,
                 &Self::parse_write,
                 &Self::parse_scope,
+                &Self::parse_while,
             ],
         )
     }
