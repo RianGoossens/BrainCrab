@@ -568,14 +568,15 @@ impl<'a> BrainCrabCompiler<'a> {
                 let result = self.new_owned(0)?;
                 let loop_value = self.new_owned(1)?;
                 self.loop_while(loop_value.address, |compiler| {
-                    compiler.sub_assign(a_temp.address, 1.into())?;
-                    compiler.sub_assign(b_temp.address, 1.into())?;
                     compiler.if_then_else(
                         a_temp.borrow().into(),
                         |compiler| {
                             compiler.if_then_else(
                                 b_temp.borrow().into(),
-                                |_| Ok(()),
+                                |compiler| {
+                                    compiler.sub_assign(a_temp.address, 1.into())?;
+                                    compiler.sub_assign(b_temp.address, 1.into())
+                                },
                                 |compiler| {
                                     compiler.zero(a_temp.address);
                                     compiler.sub_assign(loop_value.address, 1.into())
