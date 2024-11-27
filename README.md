@@ -19,8 +19,6 @@ Here are my upcoming tasks.
 - Const vs mut
 
 #### Parser Todo
-- Always store and use the error for the best current parse.
-  - Remove `until` parser
 - Parse scopes
 - Parse while
 - Parse if(/else)

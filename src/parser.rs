@@ -1,12 +1,13 @@
-use std::fmt::Display;
+use std::{collections::BTreeSet, fmt::Display};
 
 use crate::ast::{Expression, Instruction, Program};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ParseErrorMessage {
     NonAsciiProgram,
     UnexpectedEnd,
     Expected(&'static str),
+    IgnoreError,
 }
 
 impl Display for ParseErrorMessage {
@@ -14,14 +15,18 @@ impl Display for ParseErrorMessage {
         match self {
             ParseErrorMessage::NonAsciiProgram => write!(f, "Not a valid ASCII program."),
             ParseErrorMessage::UnexpectedEnd => write!(f, "Unexpected EOF."),
-            ParseErrorMessage::Expected(expected) => write!(f, "Expected {expected}."),
+            ParseErrorMessage::Expected(expected) => write!(f, "Expected {expected}"),
+            ParseErrorMessage::IgnoreError => write!(
+                f,
+                "This triggered an error that will be shown from somewhere else."
+            ),
         }
     }
 }
 
 #[derive(Debug)]
 pub struct ParseError<'a> {
-    message: ParseErrorMessage,
+    messages: Vec<ParseErrorMessage>,
     string: &'a str,
     index: usize,
 }
@@ -49,17 +54,19 @@ impl<'a> Display for ParseError<'a> {
         for _ in 0..index_on_line - 1 {
             write!(f, " ")?;
         }
-        writeln!(f, "^")?;
-        for _ in 0..index_on_line - 1 {
-            write!(f, " ")?;
+        writeln!(f, "╥")?;
+        let unique_messages: BTreeSet<_> = self.messages.iter().collect();
+        for (i, message) in unique_messages.iter().enumerate() {
+            for _ in 0..index_on_line - 1 {
+                write!(f, " ")?;
+            }
+            if i < unique_messages.len() - 1 {
+                writeln!(f, "╠═► {}", message)?;
+            } else {
+                writeln!(f, "╚═► {}", message)?;
+            }
         }
-        writeln!(f, "| {}", self.message)
-    }
-}
-
-impl<'a> ParseError<'a> {
-    pub fn with_message(self, message: ParseErrorMessage) -> Self {
-        Self { message, ..self }
+        Ok(())
     }
 }
 
@@ -186,7 +193,7 @@ pub type ParseResult<'a, A> = Result<Parsed<'a, A>, ParseError<'a>>;
 pub struct Parser {
     index: usize,
     longest_parse: usize,
-    longest_parse_error: ParseErrorMessage,
+    longest_parse_error: Vec<ParseErrorMessage>,
 }
 
 type SubParser<'a, A> = dyn Fn(&mut Parser, &'a str) -> ParseResult<'a, A>;
@@ -196,7 +203,7 @@ impl Parser {
         Self {
             index: 0,
             longest_parse: 0,
-            longest_parse_error: ParseErrorMessage::Expected(""),
+            longest_parse_error: vec![],
         }
     }
 
@@ -222,12 +229,18 @@ impl Parser {
         string: &'a str,
         message: ParseErrorMessage,
     ) -> ParseResult<'a, A> {
-        if self.index > self.longest_parse {
-            self.longest_parse = self.index;
-            self.longest_parse_error = message;
+        if message != ParseErrorMessage::IgnoreError {
+            match self.index.cmp(&self.longest_parse) {
+                std::cmp::Ordering::Equal => self.longest_parse_error.push(message),
+                std::cmp::Ordering::Greater => {
+                    self.longest_parse = self.index;
+                    self.longest_parse_error = vec![message];
+                }
+                _ => {}
+            }
         }
         Err(ParseError {
-            message: self.longest_parse_error,
+            messages: self.longest_parse_error.clone(),
             string,
             index: self.longest_parse,
         })
@@ -246,6 +259,27 @@ impl Parser {
         }
     }
 
+    fn filter<'a, A, P, F>(
+        &mut self,
+        string: &'a str,
+        parse_function: P,
+        filter_function: F,
+        error_message: ParseErrorMessage,
+    ) -> ParseResult<'a, A>
+    where
+        P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>,
+        F: Fn(&A) -> bool,
+    {
+        let start_location = self.index;
+        let value = parse_function(self, string)?.value;
+        if filter_function(&value) {
+            self.success(string, value, start_location, self.index - start_location)
+        } else {
+            self.index = start_location;
+            self.error(string, error_message)
+        }
+    }
+
     fn eof<'a>(&mut self, string: &'a str) -> ParseResult<'a, ()> {
         if self.index == string.len() {
             self.success(string, (), self.index, 0)
@@ -254,21 +288,21 @@ impl Parser {
         }
     }
 
-    fn parse_chars_while<'a, F: Fn(char) -> bool>(
+    fn repeat<'a, A, P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>>(
         &mut self,
         string: &'a str,
-        filter: F,
-    ) -> ParseResult<'a, &'a str> {
-        let start_index = self.index;
-        let mut end_index = string.len();
-        for (i, char) in string[start_index..].char_indices() {
-            if !filter(char) {
-                end_index = start_index + i;
-                break;
-            }
+        parse_function: P,
+    ) -> ParseResult<'a, Vec<A>> {
+        let start_location = self.index;
+        let mut result = vec![];
+        while let Parsed {
+            value: Some(element),
+            ..
+        } = self.optional(string, &parse_function)?
+        {
+            result.push(element);
         }
-        let slice = &string[start_index..end_index];
-        self.success(string, slice, start_index, end_index - start_index)
+        self.success(string, result, start_location, self.index - start_location)
     }
 
     fn one_or_more<'a, A, P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>>(
@@ -289,42 +323,6 @@ impl Parser {
         self.success(string, result, start_location, self.index - start_location)
     }
 
-    fn until<'a, A, P, E>(
-        &mut self,
-        string: &'a str,
-        parse_function: P,
-        parse_end: E,
-    ) -> ParseResult<'a, Vec<A>>
-    where
-        P: Fn(&mut Self, &'a str) -> ParseResult<'a, A>,
-        E: Fn(&mut Self, &'a str) -> ParseResult<'a, ()>,
-    {
-        let start_location = self.index;
-        let mut result = vec![];
-        loop {
-            let start_index = self.index;
-            match parse_function(self, string) {
-                Ok(parsed) => {
-                    result.push(parsed.value);
-                }
-                Err(error) => {
-                    self.index = start_index;
-                    let end_parse = parse_end(self, string);
-                    if end_parse.is_ok() {
-                        return self.success(
-                            string,
-                            result,
-                            start_location,
-                            self.index - start_location,
-                        );
-                    } else {
-                        return Err(error);
-                    }
-                }
-            }
-        }
-    }
-
     pub fn one_of<'a, A>(
         &mut self,
         string: &'a str,
@@ -338,7 +336,7 @@ impl Parser {
 
             self.index = start_index;
         }
-        self.error(string, ParseErrorMessage::Expected("one of"))
+        self.error(string, ParseErrorMessage::IgnoreError)
     }
 
     fn char<'a>(&mut self, string: &'a str) -> ParseResult<'a, char> {
@@ -353,17 +351,23 @@ impl Parser {
 
     fn digit<'a>(&mut self, string: &'a str) -> ParseResult<'a, u8> {
         let start_location = self.index;
-        let result = self.char(string)?.value;
-        if let Some(digit) = result.to_digit(10) {
-            self.success(
+        let result = self
+            .filter(
                 string,
-                digit as u8,
-                start_location,
-                self.index - start_location,
-            )
-        } else {
-            self.error(string, ParseErrorMessage::Expected("digit"))
-        }
+                Self::char,
+                |x| x.is_ascii_digit(),
+                ParseErrorMessage::Expected("digit"),
+            )?
+            .value;
+        let digit = result
+            .to_digit(10)
+            .expect("character should be a digit since we used a filter parser.");
+        self.success(
+            string,
+            digit as u8,
+            start_location,
+            self.index - start_location,
+        )
     }
 
     fn escaped_char<'a>(&mut self, string: &'a str) -> ParseResult<'a, char> {
@@ -398,13 +402,12 @@ impl Parser {
 
     fn whitespace<'a>(&mut self, string: &'a str) -> ParseResult<'a, Vec<char>> {
         self.one_or_more(string, |parser, string| {
-            let start_value = parser.index;
-            let parsed = parser.char(string)?.value;
-            if parsed.is_whitespace() {
-                parser.success(string, parsed, start_value, 1)
-            } else {
-                parser.error(string, ParseErrorMessage::Expected("whitespace"))
-            }
+            parser.filter(
+                string,
+                Self::char,
+                |x| x.is_whitespace(),
+                ParseErrorMessage::Expected("whitespace"),
+            )
         })
     }
 
@@ -441,30 +444,25 @@ impl Parser {
     }
 
     pub fn parse_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
-        let start_location = self.index;
-        let u8_constant = self.optional(string, Self::parse_u8_constant)?;
-        if let Some(value) = u8_constant.value {
-            self.success(string, value.into(), start_location, u8_constant.len)
-        } else {
-            let char_constant = self.optional(string, Self::parse_char_constant)?;
-            if let Some(value) = char_constant.value {
-                self.success(string, value.into(), start_location, char_constant.len)
-            } else {
-                self.error(string, ParseErrorMessage::Expected("constant value"))
-            }
-        }
+        self.one_of(
+            string,
+            &[&Self::parse_u8_constant, &Self::parse_char_constant],
+        )
+        .map(|x| x.map(|x| x.into()))
     }
 
     pub fn parse_variable_name<'a>(&mut self, string: &'a str) -> ParseResult<'a, &'a str> {
         let start_index = self.index;
-        let result = self
-            .parse_chars_while(string, |x| x.is_ascii_alphabetic() || x == '_')?
-            .value;
-        if result.is_empty() {
-            self.error(string, ParseErrorMessage::Expected("variable name"))
-        } else {
-            self.success(string, result, start_index, self.index - start_index)
-        }
+        self.one_or_more(string, |p, s| {
+            p.filter(
+                s,
+                Self::char,
+                |x| x.is_ascii_alphabetic() || *x == '_',
+                ParseErrorMessage::Expected("variable name (alphabetic or _ ascii characters)"),
+            )
+        })?;
+        let value = &string[start_index..self.index];
+        self.success(string, value, start_index, self.index - start_index)
     }
 
     pub fn parse_variable<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
@@ -510,7 +508,7 @@ impl Parser {
         &mut self,
         string: &'a str,
     ) -> ParseResult<'a, BinaryOperator> {
-        let result = self.one_of(
+        self.one_of(
             string,
             &[
                 &|p, s| Ok(p.literal(s, "+")?.with(BinaryOperator::Add)),
@@ -524,8 +522,7 @@ impl Parser {
                 &|p, s| Ok(p.literal(s, "<")?.with(BinaryOperator::Lt)),
                 &|p, s| Ok(p.literal(s, ">")?.with(BinaryOperator::Gt)),
             ],
-        );
-        result.map_err(|x| x.with_message(ParseErrorMessage::Expected("binary operator")))
+        )
     }
 
     pub fn parse_binary_expression<'a>(
@@ -684,25 +681,16 @@ impl Parser {
     pub fn parse_program<'a>(&mut self, string: &'a str) -> ParseResult<'a, Program<'a>> {
         let start_index = self.index;
         let instructions = self
-            .until(
-                string,
-                |p, s| {
-                    p.optional(s, Self::whitespace)?;
-                    p.parse_instruction(s)
-                },
-                Self::eof,
-            )?
+            .repeat(string, |p, s| {
+                p.optional(s, Self::whitespace)?;
+                p.parse_instruction(s)
+            })?
             .value;
         self.optional(string, Self::whitespace)?;
         let program = Program { instructions };
+        self.eof(string)?;
 
-        if self.index == string.len() {
-            self.success(string, program, start_index, self.index - start_index)
-        } else {
-            println!("{program:?}");
-            println!("{} vs {}", string.len(), self.index);
-            self.error(string, ParseErrorMessage::Expected("EOF"))
-        }
+        self.success(string, program, start_index, self.index - start_index)
     }
 }
 
