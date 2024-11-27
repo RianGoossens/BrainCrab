@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::ast::{Expression, Instruction, Program};
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum ParseErrorMessage {
     NonAsciiProgram,
     UnexpectedEnd,
@@ -185,13 +185,19 @@ pub type ParseResult<'a, A> = Result<Parsed<'a, A>, ParseError<'a>>;
 
 pub struct Parser {
     index: usize,
+    longest_parse: usize,
+    longest_parse_error: ParseErrorMessage,
 }
 
 type SubParser<'a, A> = dyn Fn(&mut Parser, &'a str) -> ParseResult<'a, A>;
 
 impl Parser {
     pub fn new() -> Self {
-        Self { index: 0 }
+        Self {
+            index: 0,
+            longest_parse: 0,
+            longest_parse_error: ParseErrorMessage::Expected(""),
+        }
     }
 
     pub fn success<'a, A>(
@@ -211,11 +217,19 @@ impl Parser {
         })
     }
 
-    pub fn error<'a, A>(&self, string: &'a str, message: ParseErrorMessage) -> ParseResult<'a, A> {
+    pub fn error<'a, A>(
+        &mut self,
+        string: &'a str,
+        message: ParseErrorMessage,
+    ) -> ParseResult<'a, A> {
+        if self.index > self.longest_parse {
+            self.longest_parse = self.index;
+            self.longest_parse_error = message;
+        }
         Err(ParseError {
-            message,
+            message: self.longest_parse_error,
             string,
-            index: self.index,
+            index: self.longest_parse,
         })
     }
 
@@ -317,30 +331,14 @@ impl Parser {
         parsers: &[&SubParser<'a, A>],
     ) -> ParseResult<'a, A> {
         let start_index = self.index;
-        // The best error message is from the parser that parsed the most before erroring.
-        let mut best_error_index = start_index;
-        let mut best_error_message = ParseErrorMessage::Expected("No parsers provided");
         for parser in parsers {
-            let result = parser(self, string);
-            if result.is_ok() {
-                return result;
-            }
-            match result {
-                Ok(_) => return result,
-                Err(error) => {
-                    if error.index > best_error_index {
-                        best_error_index = error.index;
-                        best_error_message = error.message;
-                    }
-                }
+            if let Some(result) = self.optional(string, parser)?.value {
+                return self.success(string, result, start_index, self.index - start_index);
             }
 
             self.index = start_index;
         }
-        self.error(string, best_error_message).map_err(|mut error| {
-            error.index = best_error_index;
-            error
-        })
+        self.error(string, ParseErrorMessage::Expected("one of"))
     }
 
     fn char<'a>(&mut self, string: &'a str) -> ParseResult<'a, char> {
@@ -370,19 +368,15 @@ impl Parser {
 
     fn escaped_char<'a>(&mut self, string: &'a str) -> ParseResult<'a, char> {
         let start_location = self.index;
-        let escaped = self.char(string)?.value;
-        if escaped == '\\' {
-            let result = self.char(string)?.value;
-            let result = match result {
-                'n' => '\n',
-                't' => '\t',
-                'r' => '\r',
-                _ => result,
-            };
-            self.success(string, result, start_location, self.index - start_location)
-        } else {
-            self.error(string, ParseErrorMessage::Expected("escaped character"))
-        }
+        self.literal(string, "\\")?;
+        let result = self.char(string)?.value;
+        let result = match result {
+            'n' => '\n',
+            't' => '\t',
+            'r' => '\r',
+            _ => result,
+        };
+        self.success(string, result, start_location, self.index - start_location)
     }
 
     fn literal<'a>(
