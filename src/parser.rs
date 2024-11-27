@@ -664,6 +664,23 @@ impl Parser {
         self.success(string, result, start_location, self.index - start_location)
     }
 
+    pub fn parse_scope<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        let start_index = self.index;
+        self.literal(string, "{")?;
+        let instructions = self.parse_instructions(string)?.value;
+        self.literal(string, "}")?;
+        let result = Instruction::Scope { body: instructions };
+        self.success(string, result, start_index, self.index - start_index)
+    }
+
+    pub fn parse_while<'a>(&mut self, _string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        todo!()
+    }
+
+    pub fn parse_if_else<'a>(&mut self, _string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        todo!()
+    }
+
     pub fn parse_instruction<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
         self.one_of(
             string,
@@ -674,11 +691,15 @@ impl Parser {
                 &Self::parse_sub_assignment,
                 &Self::parse_read,
                 &Self::parse_write,
+                &Self::parse_scope,
             ],
         )
     }
 
-    pub fn parse_program<'a>(&mut self, string: &'a str) -> ParseResult<'a, Program<'a>> {
+    pub fn parse_instructions<'a>(
+        &mut self,
+        string: &'a str,
+    ) -> ParseResult<'a, Vec<Instruction<'a>>> {
         let start_index = self.index;
         let instructions = self
             .repeat(string, |p, s| {
@@ -687,6 +708,12 @@ impl Parser {
             })?
             .value;
         self.optional(string, Self::whitespace)?;
+        self.success(string, instructions, start_index, self.index - start_index)
+    }
+
+    pub fn parse_program<'a>(&mut self, string: &'a str) -> ParseResult<'a, Program<'a>> {
+        let start_index = self.index;
+        let instructions = self.parse_instructions(string)?.value;
         let program = Program { instructions };
         self.eof(string)?;
 

@@ -234,6 +234,7 @@ impl BFInterpreter {
                 BFTree::Read => {
                     let mut byte = [0_u8];
                     {
+                        stdout().flush().unwrap();
                         let mut stdin_handle = stdin().lock();
                         stdin_handle.read_exact(&mut byte).unwrap();
                         if byte[0] == 13 {
