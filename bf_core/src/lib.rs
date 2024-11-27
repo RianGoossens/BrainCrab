@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    io::{stdin, Read},
+    io::{stdin, stdout, Read, Write},
 };
 
 #[repr(u8)]
@@ -54,7 +54,7 @@ pub fn stringify_bf_tokens(tokens: &[BFToken]) -> String {
 
 #[derive(Debug, Clone)]
 pub enum BFTree {
-    Move(isize),
+    Move(i16),
     Add(u8),
     Write,
     Read,
@@ -90,7 +90,7 @@ impl BFTree {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct BFProgram(pub Vec<BFTree>);
 
 impl BFProgram {
@@ -98,8 +98,18 @@ impl BFProgram {
         BFProgram(vec![])
     }
 
-    pub fn append(&mut self, mut rhs: BFProgram) {
-        self.0.append(&mut rhs.0);
+    pub fn push_instruction(&mut self, instruction: BFTree) {
+        match (&instruction, self.0.last_mut()) {
+            (BFTree::Move(a), Some(BFTree::Move(b))) => *b += a,
+            (BFTree::Add(a), Some(BFTree::Add(b))) => *b = b.wrapping_add(*a),
+            _ => self.0.push(instruction),
+        }
+    }
+
+    pub fn append(&mut self, rhs: BFProgram) {
+        for instruction in rhs.0 {
+            self.push_instruction(instruction);
+        }
     }
 
     fn parse_bf_tokens_impl(tokens: &[BFToken], index: &mut usize) -> Vec<BFTree> {
@@ -209,10 +219,14 @@ impl BFInterpreter {
         Self::default()
     }
 
+    pub fn tape(&self) -> &[u8; 30000] {
+        &self.tape
+    }
+
     pub fn run_instructions(&mut self, instructions: &[BFTree]) {
         for tree in instructions {
             match tree {
-                BFTree::Move(amount) => self.pointer = ((self.pointer as isize) + amount) as usize,
+                BFTree::Move(amount) => self.pointer = ((self.pointer as i16) + amount) as usize,
                 BFTree::Add(amount) => {
                     self.tape[self.pointer] = self.tape[self.pointer].wrapping_add(*amount)
                 }
@@ -220,6 +234,7 @@ impl BFInterpreter {
                 BFTree::Read => {
                     let mut byte = [0_u8];
                     {
+                        stdout().flush().unwrap();
                         let mut stdin_handle = stdin().lock();
                         stdin_handle.read_exact(&mut byte).unwrap();
                         if byte[0] == 13 {
@@ -240,5 +255,6 @@ impl BFInterpreter {
 
     pub fn run(&mut self, program: &BFProgram) {
         self.run_instructions(&program.0);
+        stdout().flush().unwrap();
     }
 }

@@ -1,2 +1,5 @@
 /target
+*.b
 *.bf
+*.bc
+/syntax_highlighting
