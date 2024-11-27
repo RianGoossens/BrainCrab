@@ -96,8 +96,8 @@ pub enum Instruction<'a> {
     Read {
         name: &'a str,
     },
-    WriteString {
-        string: &'a str,
+    Print {
+        string: String,
     },
     Scope {
         body: Vec<Instruction<'a>>,

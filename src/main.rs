@@ -16,8 +16,8 @@ use parser::Parser;
 fn main() -> io::Result<()> {
     let _program = Program {
         instructions: vec![
-            Instruction::WriteString {
-                string: "Hello World!\n",
+            Instruction::Print {
+                string: "Hello World!\n".into(),
             },
             Instruction::Define {
                 name: "x",
@@ -78,15 +78,21 @@ fn main() -> io::Result<()> {
                 name: "x",
                 value: Expression::add(Expression::variable("x"), Expression::variable("x")),
             },
-            Instruction::WriteString {
-                string: "The detected value was ",
+            Instruction::Print {
+                string: "The detected value was ".into(),
             },
             Instruction::IfThenElse {
                 predicate: Expression::variable("x"),
-                if_body: vec![Instruction::WriteString { string: "true" }],
-                else_body: vec![Instruction::WriteString { string: "false" }],
+                if_body: vec![Instruction::Print {
+                    string: "true".into(),
+                }],
+                else_body: vec![Instruction::Print {
+                    string: "false".into(),
+                }],
             },
-            Instruction::WriteString { string: "!\n" },
+            Instruction::Print {
+                string: "!\n".into(),
+            },
         ],
     };
     let _program = Program {
@@ -98,8 +104,8 @@ fn main() -> io::Result<()> {
             Instruction::While {
                 predicate: Expression::sub(Expression::variable("x"), Expression::constant(4)),
                 body: vec![
-                    Instruction::WriteString {
-                        string: "The detected value was ",
+                    Instruction::Print {
+                        string: "The detected value was ".into(),
                     },
                     Instruction::IfThenElse {
                         predicate: Expression::or(
@@ -116,20 +122,26 @@ fn main() -> io::Result<()> {
                                     Expression::variable("x"),
                                     Expression::constant(7),
                                 ),
-                                if_body: vec![Instruction::WriteString { string: "OTHER" }],
-                                else_body: vec![Instruction::WriteString { string: "7" }],
+                                if_body: vec![Instruction::Print {
+                                    string: "OTHER".into(),
+                                }],
+                                else_body: vec![Instruction::Print { string: "7".into() }],
                             }],
-                            else_body: vec![Instruction::WriteString { string: "SIX" }],
+                            else_body: vec![Instruction::Print {
+                                string: "SIX".into(),
+                            }],
                         }],
-                        if_body: vec![Instruction::WriteString {
-                            string: "FIVE OR EIGHT",
+                        if_body: vec![Instruction::Print {
+                            string: "FIVE OR EIGHT".into(),
                         }],
                     },
                     Instruction::SubAssign {
                         name: "x",
                         value: Expression::constant(1),
                     },
-                    Instruction::WriteString { string: "!\n" },
+                    Instruction::Print {
+                        string: "!\n".into(),
+                    },
                 ],
             },
         ],

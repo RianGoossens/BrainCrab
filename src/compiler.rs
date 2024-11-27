@@ -407,7 +407,7 @@ impl<'a> BrainCrabCompiler<'a> {
         Ok(())
     }
 
-    pub fn write_string(&mut self, string: &str) -> CompileResult<()> {
+    pub fn print_string(&mut self, string: &str) -> CompileResult<()> {
         if string.is_ascii() {
             let temp = self.new_owned(0)?;
             self.move_pointer_to(temp.address);
@@ -743,8 +743,8 @@ impl<'a> BrainCrabCompiler<'a> {
                     self.zero(address);
                     self.read_current();
                 }
-                Instruction::WriteString { string } => {
-                    self.write_string(string)?;
+                Instruction::Print { string } => {
+                    self.print_string(&string)?;
                 }
                 Instruction::While { predicate, body } => {
                     self.loop_while_expression(predicate, |compiler| {

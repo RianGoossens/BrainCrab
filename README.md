@@ -10,16 +10,18 @@ Here are my upcoming tasks.
 - Refine repl, perhaps use crossterm or even ratatui?
 
 ### Braincrab Language TODO
+- Rewrite examples in main to actual examples
+- Start reusing cli
 - Multiplication
 - Division
 - Modulo
 - Types? (u8, bool, structs, arrays...)
 - Macros
-- Start reusing cli
 - Const vs mut
 - Make Write work with expressions
 - Make read work as an expression
 - Named constant optimization
 
 #### Parser Todo
+- Parse strings
 - macros?

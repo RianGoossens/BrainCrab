@@ -664,6 +664,41 @@ impl Parser {
         self.success(string, result, start_location, self.index - start_location)
     }
 
+    pub fn parse_print<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        let start_location = self.index;
+        self.literal(string, "print")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "(")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "\"")?;
+
+        let argument: String = self
+            .repeat(string, |p, s| {
+                p.one_of(
+                    s,
+                    &[&Self::escaped_char, &|p, s| {
+                        p.filter(
+                            s,
+                            Self::char,
+                            |x| *x != '"',
+                            ParseErrorMessage::Expected(" a character different from \""),
+                        )
+                    }],
+                )
+            })?
+            .value
+            .iter()
+            .collect();
+
+        self.literal(string, "\"")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ")")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ";")?;
+        let result = Instruction::Print { string: argument };
+        self.success(string, result, start_location, self.index - start_location)
+    }
+
     pub fn parse_scope<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
         let start_index = self.index;
         self.literal(string, "{")?;
@@ -729,6 +764,7 @@ impl Parser {
                 &Self::parse_sub_assignment,
                 &Self::parse_read,
                 &Self::parse_write,
+                &Self::parse_print,
                 &Self::parse_scope,
                 &Self::parse_while,
                 &Self::parse_if_else,

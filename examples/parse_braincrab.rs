@@ -22,7 +22,10 @@ pub fn main() -> Result<()> {
 
     println!("\nCompiling:\n");
 
-    let compiled_abf = BrainCrabCompiler::compile_abf(parsed).expect("could not compile program");
+    let mut compiled_abf =
+        BrainCrabCompiler::compile_abf(parsed).expect("could not compile program");
+
+    compiled_abf.optimize_addresses(10000);
 
     let compiled_bf = compiled_abf.to_bf();
 
