@@ -120,6 +120,12 @@ impl ABFProgram {
     }
 }
 
+impl Default for ABFProgram {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 mod abf_optimizer {
     use rand::{thread_rng, Rng};
 

@@ -25,37 +25,37 @@ impl<'a> Expression<'a> {
     pub fn variable(name: &'a str) -> Self {
         Self::Variable(name)
     }
-    pub fn add(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_add(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::Add(Box::new(a), Box::new(b))
     }
-    pub fn sub(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_sub(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::Sub(Box::new(a), Box::new(b))
     }
-    pub fn not(a: Expression<'a>) -> Self {
+    pub fn new_not(a: Expression<'a>) -> Self {
         Self::Not(Box::new(a))
     }
-    pub fn and(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_and(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::And(Box::new(a), Box::new(b))
     }
-    pub fn or(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_or(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::Or(Box::new(a), Box::new(b))
     }
-    pub fn equals(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::Equals(Box::new(a), Box::new(b))
     }
-    pub fn not_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_not_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::NotEquals(Box::new(a), Box::new(b))
     }
-    pub fn less_than_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_less_than_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::LessThanEquals(Box::new(a), Box::new(b))
     }
-    pub fn greater_than_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_greater_than_equals(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::GreaterThanEquals(Box::new(a), Box::new(b))
     }
-    pub fn less_than(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_less_than(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::LessThan(Box::new(a), Box::new(b))
     }
-    pub fn greater_than(a: Expression<'a>, b: Expression<'a>) -> Self {
+    pub fn new_greater_than(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::GreaterThan(Box::new(a), Box::new(b))
     }
 }

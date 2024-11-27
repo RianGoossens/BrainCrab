@@ -3,13 +3,13 @@ use std::io::Result;
 
 use bf_core::BFInterpreter;
 use braincrab::compiler::BrainCrabCompiler;
-use braincrab::parser::Parser;
+use braincrab::parser::BrainCrabParser;
 
 pub fn main() -> Result<()> {
     let script = fs::read_to_string("examples/braincrab_files/parse_test.bc")?;
     println!("Parsing:\n\n{}\n", &script);
 
-    let mut parser = Parser::new();
+    let mut parser = BrainCrabParser::new();
 
     let parsed = parser.parse_program(&script);
 

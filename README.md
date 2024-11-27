@@ -11,7 +11,6 @@ Here are my upcoming tasks.
 
 ### Braincrab Language TODO
 - Rewrite examples in main to actual examples
-- Start reusing cli
 - Multiplication
 - Division
 - Modulo
@@ -21,6 +20,11 @@ Here are my upcoming tasks.
 - Make Write work with expressions
 - Make read work as an expression
 - Named constant optimization
+- Comments
+- Compiler flags
+  - debug could keep comments or even code inside the .bf file
+  - optimized could do the address optimization and others
+- Improve Cli code
 
 #### Parser Todo
 - macros?

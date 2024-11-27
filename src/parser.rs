@@ -113,16 +113,16 @@ pub enum BinaryOperator {
 impl BinaryOperator {
     pub fn create_expression<'a>(&self, a: Expression<'a>, b: Expression<'a>) -> Expression<'a> {
         match self {
-            BinaryOperator::Add => Expression::add(a, b),
-            BinaryOperator::Sub => Expression::sub(a, b),
-            BinaryOperator::And => Expression::and(a, b),
-            BinaryOperator::Or => Expression::or(a, b),
-            BinaryOperator::Eq => Expression::equals(a, b),
-            BinaryOperator::Neq => Expression::not_equals(a, b),
-            BinaryOperator::Lt => Expression::less_than(a, b),
-            BinaryOperator::Gt => Expression::greater_than(a, b),
-            BinaryOperator::Leq => Expression::less_than_equals(a, b),
-            BinaryOperator::Geq => Expression::greater_than_equals(a, b),
+            BinaryOperator::Add => Expression::new_add(a, b),
+            BinaryOperator::Sub => Expression::new_sub(a, b),
+            BinaryOperator::And => Expression::new_and(a, b),
+            BinaryOperator::Or => Expression::new_or(a, b),
+            BinaryOperator::Eq => Expression::new_equals(a, b),
+            BinaryOperator::Neq => Expression::new_not_equals(a, b),
+            BinaryOperator::Lt => Expression::new_less_than(a, b),
+            BinaryOperator::Gt => Expression::new_greater_than(a, b),
+            BinaryOperator::Leq => Expression::new_less_than_equals(a, b),
+            BinaryOperator::Geq => Expression::new_greater_than_equals(a, b),
         }
     }
 
@@ -190,15 +190,15 @@ impl<'a> ExpressionParseTree<'a> {
 
 pub type ParseResult<'a, A> = Result<Parsed<'a, A>, ParseError<'a>>;
 
-pub struct Parser {
+pub struct BrainCrabParser {
     index: usize,
     longest_parse: usize,
     longest_parse_error: Vec<ParseErrorMessage>,
 }
 
-type SubParser<'a, A> = dyn Fn(&mut Parser, &'a str) -> ParseResult<'a, A>;
+type SubParser<'a, A> = dyn Fn(&mut BrainCrabParser, &'a str) -> ParseResult<'a, A>;
 
-impl Parser {
+impl BrainCrabParser {
     pub fn new() -> Self {
         Self {
             index: 0,
@@ -500,7 +500,7 @@ impl Parser {
         self.literal(string, "!")?;
         self.optional(string, Self::whitespace)?;
         let inner = self.parse_leaf_expression(string)?.value;
-        let result = Expression::not(inner);
+        let result = Expression::new_not(inner);
         self.success(string, result, start_index, self.index - start_index)
     }
 
@@ -797,7 +797,7 @@ impl Parser {
     }
 }
 
-impl Default for Parser {
+impl Default for BrainCrabParser {
     fn default() -> Self {
         Self::new()
     }
