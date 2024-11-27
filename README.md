@@ -1,7 +1,9 @@
 # 🧠🦀 BrainCrab
-A Brainfuck CLI. My long term goal is to turn this into a toolchain for a programming language that compiles down to Brainfuck.
+A Brainfuck CLI. Toolchain for a programming language that compiles down to Brainfuck.
 
 ## Features
+- Run BrainCrab (.bc) files
+- Compile BrainCrab files to Brainfuck (.bf)
 - Run .bf files
 - A Brainfuck repl
 
