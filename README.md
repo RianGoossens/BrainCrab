@@ -23,5 +23,4 @@ Here are my upcoming tasks.
 - Named constant optimization
 
 #### Parser Todo
-- Parse strings
 - macros?
