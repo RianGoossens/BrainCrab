@@ -25,7 +25,7 @@ pub fn main() -> Result<()> {
     let mut compiled_abf =
         BrainCrabCompiler::compile_abf(parsed).expect("could not compile program");
 
-    //compiled_abf.optimize_addresses(10000);
+    compiled_abf.optimize_addresses(10000);
 
     let compiled_bf = compiled_abf.to_bf();
 
