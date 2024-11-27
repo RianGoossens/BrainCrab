@@ -687,8 +687,36 @@ impl Parser {
         self.success(string, result, start_index, self.index - start_index)
     }
 
-    pub fn parse_if_else<'a>(&mut self, _string: &'a str) -> ParseResult<'a, Instruction<'a>> {
-        todo!()
+    pub fn parse_if_else<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        let start_index = self.index;
+        self.literal(string, "if")?;
+        self.whitespace(string)?;
+        let predicate = self.parse_expression(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "{")?;
+        let if_body = self.parse_instructions(string)?.value;
+        self.literal(string, "}")?;
+
+        let else_body = self
+            .optional(string, |p, s| {
+                let start_index = p.index;
+                p.optional(s, Self::whitespace)?;
+                p.literal(s, "else")?;
+                p.optional(s, Self::whitespace)?;
+                p.literal(s, "{")?;
+                let body = p.parse_instructions(s)?.value;
+                p.literal(s, "}")?;
+                p.success(s, body, start_index, p.index - start_index)
+            })?
+            .value
+            .unwrap_or(vec![]);
+
+        let result = Instruction::IfThenElse {
+            predicate,
+            if_body,
+            else_body,
+        };
+        self.success(string, result, start_index, self.index - start_index)
     }
 
     pub fn parse_instruction<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
@@ -703,6 +731,7 @@ impl Parser {
                 &Self::parse_write,
                 &Self::parse_scope,
                 &Self::parse_while,
+                &Self::parse_if_else,
             ],
         )
     }

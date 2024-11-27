@@ -17,7 +17,9 @@ Here are my upcoming tasks.
 - Macros
 - Start reusing cli
 - Const vs mut
+- Make Write work with expressions
+- Make read work as an expression
+- Named constant optimization
 
 #### Parser Todo
-- Parse if(/else)
 - macros?
