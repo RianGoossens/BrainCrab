@@ -35,6 +35,12 @@ impl Variable {
             Variable::Borrow(address) => *address,
         }
     }
+    pub fn borrow(&self) -> Self {
+        match self {
+            Variable::Owned(owned) => owned.borrow(),
+            Variable::Borrow(address) => Variable::Borrow(*address),
+        }
+    }
 }
 
 impl From<Owned> for Variable {
@@ -54,12 +60,19 @@ impl Value {
         Self::Constant(value)
     }
 
-    pub fn borrow(address: u16) -> Self {
+    pub fn new_borrow(address: u16) -> Self {
         Self::Variable(Variable::Borrow(address))
     }
 
     pub fn owned(owned: Owned) -> Self {
         Self::Variable(Variable::Owned(owned))
+    }
+
+    pub fn borrow(&self) -> Self {
+        match self {
+            Value::Constant(x) => (*x).into(),
+            Value::Variable(variable) => Value::Variable(variable.borrow()),
+        }
     }
 }
 

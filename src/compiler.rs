@@ -350,11 +350,42 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn mul_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
-        let copy = self.new_owned(Value::borrow(destination))?;
+        let result = self.new_owned(0)?;
         self.n_times(value, move |compiler| {
-            compiler.add_assign(destination, copy.borrow().into())?;
+            compiler.add_assign(result.address, Value::new_borrow(destination))?;
             Ok(())
-        })
+        })?;
+        self.assign(destination, result.into())
+    }
+
+    pub fn div_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+        if let Value::Variable(variable) = &value {
+            let value_address = variable.address();
+            if value_address == destination {
+                assert!(!variable.is_owned(), "Attempting to div a temp from itself, which is not allowed as it's already consumed");
+                self.zero(destination);
+                self.add_assign(destination, 1.into())?;
+                return Ok(());
+            }
+        }
+        let result = self.new_owned(0)?;
+
+        self.loop_while(destination, |compiler| {
+            let predicate =
+                compiler.eval_less_than_equals(value.borrow(), Value::new_borrow(destination))?;
+            compiler.if_then_else(
+                predicate,
+                |compiler| {
+                    compiler.sub_assign(destination, value)?;
+                    compiler.add_assign(result.address, 1.into())
+                },
+                |compiler| {
+                    compiler.zero(destination);
+                    Ok(())
+                },
+            )
+        })?;
+        self.copy_on_top_of_cells(result.into(), &[destination])
     }
 
     pub fn not_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
@@ -379,7 +410,7 @@ impl<'a> BrainCrabCompiler<'a> {
     }
     pub fn or_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         self.if_then_else(
-            Value::borrow(destination),
+            Value::new_borrow(destination),
             |_| Ok(()),
             |compiler| {
                 compiler.if_then(value, |compiler| compiler.add_assign(destination, 1.into()))
@@ -398,6 +429,22 @@ impl<'a> BrainCrabCompiler<'a> {
         self.zero(destination);
         self.add_assign(destination, value)?;
         Ok(())
+    }
+
+    pub fn move_on_top_of_cells(
+        &mut self,
+        source: Variable,
+        destinations: &[u16],
+    ) -> CompileResult<()> {
+        self.loop_while(source.address(), |compiler| {
+            compiler.move_pointer_to(source.address());
+            compiler.dec_current();
+            for destination in destinations {
+                compiler.move_pointer_to(*destination);
+                compiler.inc_current();
+            }
+            Ok(())
+        })
     }
 
     pub fn copy_on_top_of_cells(
@@ -493,6 +540,22 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
+    fn eval_div(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        match (a, b) {
+            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_div(b))),
+            (Value::Variable(Variable::Owned(a)), b) => {
+                self.div_assign(a.address, b)?;
+                Ok(a.into())
+            }
+            (a, b) => {
+                let temp = self.new_owned(a)?;
+                self.div_assign(temp.address, b)?;
+
+                Ok(temp.into())
+            }
+        }
+    }
+
     fn eval_not(&mut self, inner: Value) -> CompileResult<Value> {
         match inner {
             Value::Constant(value) => {
@@ -508,7 +571,7 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             Value::Variable(Variable::Borrow(borrowed)) => {
                 let result = self.new_owned(0)?;
-                self.not_assign(result.address, Value::borrow(borrowed))?;
+                self.not_assign(result.address, Value::new_borrow(borrowed))?;
                 Ok(result.into())
             }
         }
@@ -660,6 +723,11 @@ impl<'a> BrainCrabCompiler<'a> {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
                 self.eval_mul(a, b)
+            }
+            Expression::Div(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_div(a, b)
             }
             Expression::Not(inner) => {
                 let inner = self.eval_expression(*inner)?;
