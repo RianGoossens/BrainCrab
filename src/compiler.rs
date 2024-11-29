@@ -349,6 +349,14 @@ impl<'a> BrainCrabCompiler<'a> {
         })
     }
 
+    pub fn mul_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+        let copy = self.new_owned(Value::borrow(destination))?;
+        self.n_times(value, move |compiler| {
+            compiler.add_assign(destination, copy.borrow().into())?;
+            Ok(())
+        })
+    }
+
     pub fn not_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         self.if_then_else(
             value,
@@ -443,6 +451,26 @@ impl<'a> BrainCrabCompiler<'a> {
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.add_assign(temp.address, b)?;
+
+                Ok(Value::owned(temp))
+            }
+        }
+    }
+
+    fn eval_mul(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        match (a, b) {
+            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_mul(b))),
+            (Value::Variable(Variable::Owned(a)), b) => {
+                self.mul_assign(a.address, b)?;
+                Ok(Value::owned(a))
+            }
+            (a, Value::Variable(Variable::Owned(b))) => {
+                self.mul_assign(b.address, a)?;
+                Ok(Value::owned(b))
+            }
+            (a, b) => {
+                let temp = self.new_owned(a)?;
+                self.mul_assign(temp.address, b)?;
 
                 Ok(Value::owned(temp))
             }
@@ -627,6 +655,11 @@ impl<'a> BrainCrabCompiler<'a> {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
                 self.eval_sub(a, b)
+            }
+            Expression::Mul(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_mul(a, b)
             }
             Expression::Not(inner) => {
                 let inner = self.eval_expression(*inner)?;

@@ -100,6 +100,7 @@ impl<'a, A> Parsed<'a, A> {
 pub enum BinaryOperator {
     Add,
     Sub,
+    Mul,
     And,
     Or,
     Eq,
@@ -115,6 +116,7 @@ impl BinaryOperator {
         match self {
             BinaryOperator::Add => Expression::new_add(a, b),
             BinaryOperator::Sub => Expression::new_sub(a, b),
+            BinaryOperator::Mul => Expression::new_mul(a, b),
             BinaryOperator::And => Expression::new_and(a, b),
             BinaryOperator::Or => Expression::new_or(a, b),
             BinaryOperator::Eq => Expression::new_equals(a, b),
@@ -130,6 +132,7 @@ impl BinaryOperator {
         match self {
             BinaryOperator::Add => 4,
             BinaryOperator::Sub => 4,
+            BinaryOperator::Mul => 3,
             BinaryOperator::Lt => 6,
             BinaryOperator::Gt => 6,
             BinaryOperator::Leq => 6,
@@ -513,6 +516,7 @@ impl BrainCrabParser {
             &[
                 &|p, s| Ok(p.literal(s, "+")?.with(BinaryOperator::Add)),
                 &|p, s| Ok(p.literal(s, "-")?.with(BinaryOperator::Sub)),
+                &|p, s| Ok(p.literal(s, "*")?.with(BinaryOperator::Mul)),
                 &|p, s| Ok(p.literal(s, "&")?.with(BinaryOperator::And)),
                 &|p, s| Ok(p.literal(s, "|")?.with(BinaryOperator::Or)),
                 &|p, s| Ok(p.literal(s, "==")?.with(BinaryOperator::Eq)),
