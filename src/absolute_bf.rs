@@ -4,10 +4,10 @@ use bf_core::{BFProgram, BFTree};
 #[derive(Debug)]
 pub enum ABFTree {
     MoveTo(u16),
-    Add(u8),
-    Write,
-    Read,
-    While(Vec<ABFTree>),
+    Add(u16, i8),
+    Write(u16),
+    Read(u16),
+    While(u16, Vec<ABFTree>),
 }
 
 impl ABFTree {
@@ -18,16 +18,32 @@ impl ABFTree {
                     output.push(*x);
                 }
             }
-            ABFTree::While(body) => {
-                let start_point = *output.last().unwrap();
+            ABFTree::Add(x, _) => {
+                if output.last().unwrap() != x {
+                    output.push(*x);
+                }
+            }
+            ABFTree::Read(x) => {
+                if output.last().unwrap() != x {
+                    output.push(*x);
+                }
+            }
+            ABFTree::Write(x) => {
+                if output.last().unwrap() != x {
+                    output.push(*x);
+                }
+            }
+            ABFTree::While(x, body) => {
+                if output.last().unwrap() != x {
+                    output.push(*x);
+                }
                 for tree in body {
                     tree.calculate_path_impl(output);
                 }
-                if *output.last().unwrap() != start_point {
-                    output.push(start_point);
+                if *output.last().unwrap() != *x {
+                    output.push(*x);
                 }
             }
-            _ => {}
         }
     }
     fn to_bf_impl(&self, pointer: &mut u16, output: &mut BFProgram) {
@@ -37,19 +53,30 @@ impl ABFTree {
                 output.push_instruction(BFTree::Move(offset));
                 *pointer = *position;
             }
-            ABFTree::Add(value) => {
-                output.push_instruction(BFTree::Add(*value));
+            ABFTree::Add(position, value) => {
+                let offset = (*position as i16) - (*pointer as i16);
+                output.push_instruction(BFTree::Move(offset));
+                output.push_instruction(BFTree::Add(*value as u8));
             }
-            ABFTree::Write => output.push_instruction(BFTree::Write),
-            ABFTree::Read => output.push_instruction(BFTree::Read),
-            ABFTree::While(body) => {
-                let start_pointer = *pointer;
+            ABFTree::Write(position) => {
+                let offset = (*position as i16) - (*pointer as i16);
+                output.push_instruction(BFTree::Move(offset));
+                output.push_instruction(BFTree::Write);
+            }
+            ABFTree::Read(position) => {
+                let offset = (*position as i16) - (*pointer as i16);
+                output.push_instruction(BFTree::Move(offset));
+                output.push_instruction(BFTree::Read);
+            }
+            ABFTree::While(position, body) => {
+                let offset = (*position as i16) - (*pointer as i16);
+                output.push_instruction(BFTree::Move(offset));
 
                 let mut body_bf = BFProgram::new();
                 for tree in body {
                     tree.to_bf_impl(pointer, &mut body_bf);
                 }
-                ABFTree::MoveTo(start_pointer).to_bf_impl(pointer, &mut body_bf);
+                ABFTree::MoveTo(*position).to_bf_impl(pointer, &mut body_bf);
 
                 output.push_instruction(BFTree::Loop(body_bf.0))
             }
@@ -58,10 +85,15 @@ impl ABFTree {
     fn remap_addresses(&mut self, address_map: &[u16]) {
         match self {
             ABFTree::MoveTo(address) => *address = address_map[*address as usize],
-            ABFTree::While(body) => body.iter_mut().for_each(|tree| {
-                tree.remap_addresses(address_map);
-            }),
-            _ => {}
+            ABFTree::Add(address, _) => *address = address_map[*address as usize],
+            ABFTree::Read(address) => *address = address_map[*address as usize],
+            ABFTree::Write(address) => *address = address_map[*address as usize],
+            ABFTree::While(address, body) => {
+                *address = address_map[*address as usize];
+                body.iter_mut().for_each(|tree| {
+                    tree.remap_addresses(address_map);
+                })
+            }
         }
     }
 }
@@ -80,7 +112,11 @@ impl ABFProgram {
             (ABFTree::MoveTo(destination), Some(ABFTree::MoveTo(previous_destination))) => {
                 *previous_destination = *destination
             }
-            (ABFTree::Add(a), Some(ABFTree::Add(b))) => *b = b.wrapping_add(*a),
+            (ABFTree::Add(location_a, a), Some(ABFTree::Add(location_b, b)))
+                if location_a == location_b =>
+            {
+                *b = b.wrapping_add(*a)
+            }
             _ => self.body.push(instruction),
         }
     }

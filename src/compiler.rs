@@ -166,19 +166,19 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn inc_current(&mut self) {
-        self.push_instruction(ABFTree::Add(1));
+        self.push_instruction(ABFTree::Add(self.pointer, 1));
     }
 
     pub fn dec_current(&mut self) {
-        self.push_instruction(ABFTree::Add(255));
+        self.push_instruction(ABFTree::Add(self.pointer, -1));
     }
 
     pub fn write_current(&mut self) {
-        self.push_instruction(ABFTree::Write);
+        self.push_instruction(ABFTree::Write(self.pointer));
     }
 
     pub fn read_current(&mut self) {
-        self.push_instruction(ABFTree::Read);
+        self.push_instruction(ABFTree::Read(self.pointer));
     }
 
     pub fn scoped<F: FnOnce(&mut Self) -> CompileResult<()>>(&mut self, f: F) -> CompileResult<()> {
@@ -208,7 +208,7 @@ impl<'a> BrainCrabCompiler<'a> {
         })?;
 
         let loop_program = self.program_stack.pop().unwrap();
-        self.push_instruction(ABFTree::While(loop_program.body));
+        self.push_instruction(ABFTree::While(self.pointer, loop_program.body));
         Ok(())
     }
 
@@ -315,7 +315,7 @@ impl<'a> BrainCrabCompiler<'a> {
     pub fn zero(&mut self, address: u16) {
         self.move_pointer_to(address);
         self.program().append(ABFProgram {
-            body: vec![ABFTree::While(vec![ABFTree::Add(255)])],
+            body: vec![ABFTree::While(address, vec![ABFTree::Add(address, -1)])],
         });
     }
 

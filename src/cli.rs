@@ -74,7 +74,8 @@ impl Cli {
                 let program = parsed.value;
                 let compiled_abf = BrainCrabCompiler::compile_abf(program);
                 match compiled_abf {
-                    Ok(compiled_abf) => {
+                    Ok(mut compiled_abf) => {
+                        compiled_abf.optimize_addresses(1000);
                         let bf = compiled_abf.to_bf();
                         let mut interpreter = BFInterpreter::new();
                         interpreter.run(&bf);
@@ -103,7 +104,8 @@ impl Cli {
                 let program = parsed.value;
                 let compiled_abf = BrainCrabCompiler::compile_abf(program);
                 match compiled_abf {
-                    Ok(compiled_abf) => {
+                    Ok(mut compiled_abf) => {
+                        compiled_abf.optimize_addresses(1000);
                         let bf = compiled_abf.to_bf().to_string();
                         if let Some(output_path) = output {
                             fs::write(output_path, bf)?;
