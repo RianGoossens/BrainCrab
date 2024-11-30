@@ -67,7 +67,6 @@ pub struct BrainCrabCompiler<'a> {
     pub program_stack: Vec<ABFProgram>,
     pub variable_map: ScopedVariableMap<'a>,
     pub address_pool: AddressPool,
-    pub pointer: u16,
 }
 
 impl<'a> Default for BrainCrabCompiler<'a> {
@@ -76,7 +75,6 @@ impl<'a> Default for BrainCrabCompiler<'a> {
             program_stack: vec![ABFProgram::new()],
             variable_map: Default::default(),
             address_pool: Rc::new(RefCell::new(BrainCrabAllocator::new_allocator())),
-            pointer: 0,
         }
     }
 }
@@ -105,7 +103,7 @@ impl<'a> BrainCrabCompiler<'a> {
     // Memory management
 
     pub fn allocate(&mut self) -> CompileResult<Owned> {
-        if let Some(address) = self.address_pool.borrow_mut().allocate(self.pointer) {
+        if let Some(address) = self.address_pool.borrow_mut().allocate(0) {
             Ok(Owned {
                 address,
                 address_pool: self.address_pool.clone(),
@@ -125,7 +123,6 @@ impl<'a> BrainCrabCompiler<'a> {
             self.variable_map.register(name, owned);
 
             self.n_times(value, |compiler| {
-                compiler.move_pointer_to(address);
                 compiler.add_to(address, 1);
                 Ok(())
             })?;
@@ -160,10 +157,6 @@ impl<'a> BrainCrabCompiler<'a> {
 
     // Primitives
 
-    pub fn move_pointer_to(&mut self, address: u16) {
-        self.pointer = address;
-    }
-
     pub fn add_to(&mut self, address: u16, value: i8) {
         self.push_instruction(ABFTree::Add(address, value));
     }
@@ -179,12 +172,10 @@ impl<'a> BrainCrabCompiler<'a> {
     pub fn scoped<F: FnOnce(&mut Self) -> CompileResult<()>>(&mut self, f: F) -> CompileResult<()> {
         self.variable_map.start_scope();
         f(self)?;
-        let last_pointer_position = self.pointer;
         let scope = self.variable_map.end_scope();
         for owned in scope {
             self.zero(owned.address);
         }
-        self.move_pointer_to(last_pointer_position);
         Ok(())
     }
 
@@ -193,17 +184,14 @@ impl<'a> BrainCrabCompiler<'a> {
         predicate: u16,
         f: F,
     ) -> CompileResult<()> {
-        self.move_pointer_to(predicate);
-
         self.program_stack.push(ABFProgram::new());
         self.scoped(|compiler| {
             f(compiler)?;
-            compiler.move_pointer_to(predicate);
             Ok(())
         })?;
 
         let loop_program = self.program_stack.pop().unwrap();
-        self.push_instruction(ABFTree::While(self.pointer, loop_program.body));
+        self.push_instruction(ABFTree::While(predicate, loop_program.body));
         Ok(())
     }
 
@@ -290,14 +278,12 @@ impl<'a> BrainCrabCompiler<'a> {
                     let temp = self.new_owned(0)?;
                     self.loop_while(address, |compiler| {
                         compiler.add_to(address, -1);
-                        compiler.move_pointer_to(temp.address);
                         compiler.add_to(temp.address, 1);
                         f(compiler)?;
                         Ok(())
                     })?;
                     self.loop_while(temp.address, |compiler| {
                         compiler.add_to(temp.address, -1);
-                        compiler.move_pointer_to(address);
                         compiler.add_to(address, 1);
                         Ok(())
                     })?;
@@ -308,7 +294,6 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn zero(&mut self, address: u16) {
-        self.move_pointer_to(address);
         self.program().append(ABFProgram {
             body: vec![ABFTree::While(address, vec![ABFTree::Add(address, -1)])],
         });
@@ -338,7 +323,6 @@ impl<'a> BrainCrabCompiler<'a> {
             }
         }
         self.n_times(value, |compiler| {
-            compiler.move_pointer_to(destination);
             compiler.add_to(destination, -1);
             Ok(())
         })
@@ -432,10 +416,8 @@ impl<'a> BrainCrabCompiler<'a> {
         destinations: &[u16],
     ) -> CompileResult<()> {
         self.loop_while(source.address(), |compiler| {
-            compiler.move_pointer_to(source.address());
             compiler.add_to(source.address(), -1);
             for destination in destinations {
-                compiler.move_pointer_to(*destination);
                 compiler.add_to(*destination, 1);
             }
             Ok(())
@@ -449,7 +431,6 @@ impl<'a> BrainCrabCompiler<'a> {
     ) -> CompileResult<()> {
         self.n_times(source, |compiler| {
             for destination in destinations {
-                compiler.move_pointer_to(*destination);
                 compiler.add_to(*destination, 1);
             }
             Ok(())
@@ -460,7 +441,6 @@ impl<'a> BrainCrabCompiler<'a> {
     pub fn print_string(&mut self, string: &str) -> CompileResult<()> {
         if string.is_ascii() {
             let temp = self.new_owned(0)?;
-            self.move_pointer_to(temp.address);
             let mut current_value = 0u8;
             for char in string.chars() {
                 let new_value = char as u8;
@@ -831,13 +811,10 @@ impl<'a> BrainCrabCompiler<'a> {
                 }
                 Instruction::Write { name } => {
                     let address = self.get_address(name)?;
-                    self.move_pointer_to(address);
                     self.write(address);
                 }
                 Instruction::Read { name } => {
                     let address = self.get_address(name)?;
-                    self.move_pointer_to(address);
-                    self.zero(address);
                     self.read(address);
                 }
                 Instruction::Print { string } => {
