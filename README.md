@@ -13,7 +13,6 @@ Here are my upcoming tasks.
 
 ### Braincrab Language TODO
 - Rewrite examples in main to actual examples
-- Division
 - Modulo
 - Types? (u8, bool, structs, arrays...)
 - Macros
