@@ -162,7 +162,6 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn move_pointer_to(&mut self, address: u16) {
         self.pointer = address;
-        self.push_instruction(ABFTree::MoveTo(address));
     }
 
     pub fn inc_current(&mut self) {
