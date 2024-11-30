@@ -126,7 +126,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
             self.n_times(value, |compiler| {
                 compiler.move_pointer_to(address);
-                compiler.inc_current();
+                compiler.add_to(address, 1);
                 Ok(())
             })?;
             Ok(address)
@@ -164,20 +164,16 @@ impl<'a> BrainCrabCompiler<'a> {
         self.pointer = address;
     }
 
-    pub fn inc_current(&mut self) {
-        self.push_instruction(ABFTree::Add(self.pointer, 1));
+    pub fn add_to(&mut self, address: u16, value: i8) {
+        self.push_instruction(ABFTree::Add(address, value));
     }
 
-    pub fn dec_current(&mut self) {
-        self.push_instruction(ABFTree::Add(self.pointer, -1));
+    pub fn write(&mut self, address: u16) {
+        self.push_instruction(ABFTree::Write(address));
     }
 
-    pub fn write_current(&mut self) {
-        self.push_instruction(ABFTree::Write(self.pointer));
-    }
-
-    pub fn read_current(&mut self) {
-        self.push_instruction(ABFTree::Read(self.pointer));
+    pub fn read(&mut self, address: u16) {
+        self.push_instruction(ABFTree::Read(address));
     }
 
     pub fn scoped<F: FnOnce(&mut Self) -> CompileResult<()>>(&mut self, f: F) -> CompileResult<()> {
@@ -284,7 +280,7 @@ impl<'a> BrainCrabCompiler<'a> {
             Value::Variable(variable) => match variable {
                 Variable::Owned(temp) => {
                     self.loop_while(temp.address, |compiler| {
-                        compiler.dec_current();
+                        compiler.add_to(temp.address, -1);
                         f(compiler)?;
                         Ok(())
                     })?;
@@ -293,16 +289,16 @@ impl<'a> BrainCrabCompiler<'a> {
                     let address = variable.address();
                     let temp = self.new_owned(0)?;
                     self.loop_while(address, |compiler| {
-                        compiler.dec_current();
+                        compiler.add_to(address, -1);
                         compiler.move_pointer_to(temp.address);
-                        compiler.inc_current();
+                        compiler.add_to(temp.address, 1);
                         f(compiler)?;
                         Ok(())
                     })?;
                     self.loop_while(temp.address, |compiler| {
-                        compiler.dec_current();
+                        compiler.add_to(temp.address, -1);
                         compiler.move_pointer_to(address);
-                        compiler.inc_current();
+                        compiler.add_to(address, 1);
                         Ok(())
                     })?;
                 }
@@ -343,7 +339,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
         self.n_times(value, |compiler| {
             compiler.move_pointer_to(destination);
-            compiler.dec_current();
+            compiler.add_to(destination, -1);
             Ok(())
         })
     }
@@ -437,10 +433,10 @@ impl<'a> BrainCrabCompiler<'a> {
     ) -> CompileResult<()> {
         self.loop_while(source.address(), |compiler| {
             compiler.move_pointer_to(source.address());
-            compiler.dec_current();
+            compiler.add_to(source.address(), -1);
             for destination in destinations {
                 compiler.move_pointer_to(*destination);
-                compiler.inc_current();
+                compiler.add_to(*destination, 1);
             }
             Ok(())
         })
@@ -454,7 +450,7 @@ impl<'a> BrainCrabCompiler<'a> {
         self.n_times(source, |compiler| {
             for destination in destinations {
                 compiler.move_pointer_to(*destination);
-                compiler.inc_current();
+                compiler.add_to(*destination, 1);
             }
             Ok(())
         })?;
@@ -470,7 +466,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 let new_value = char as u8;
                 let offset = new_value.wrapping_sub(current_value);
                 self.add_assign(temp.address, Value::constant(offset))?;
-                self.write_current();
+                self.write(temp.address);
                 current_value = new_value;
             }
             self.sub_assign(temp.address, Value::constant(current_value))?;
@@ -836,13 +832,13 @@ impl<'a> BrainCrabCompiler<'a> {
                 Instruction::Write { name } => {
                     let address = self.get_address(name)?;
                     self.move_pointer_to(address);
-                    self.write_current();
+                    self.write(address);
                 }
                 Instruction::Read { name } => {
                     let address = self.get_address(name)?;
                     self.move_pointer_to(address);
                     self.zero(address);
-                    self.read_current();
+                    self.read(address);
                 }
                 Instruction::Print { string } => {
                     self.print_string(&string)?;
