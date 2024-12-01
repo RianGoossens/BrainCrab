@@ -1,4 +1,4 @@
-mod absolute_bf;
+pub mod absolute_bf;
 mod allocator;
 pub mod ast;
 pub mod cli;

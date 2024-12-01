@@ -25,6 +25,7 @@ Here are my upcoming tasks.
   - debug could keep comments or even code inside the .bf file
   - optimized could do the address optimization and others
 - Improve Cli code
+- Optimize ABF by looking at preconditions and rewriting instructions
 
 #### Parser Todo
 - macros?
