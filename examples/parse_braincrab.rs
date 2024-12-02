@@ -6,7 +6,7 @@ use braincrab::compiler::BrainCrabCompiler;
 use braincrab::parser::BrainCrabParser;
 
 pub fn main() -> Result<()> {
-    let script = fs::read_to_string("examples/braincrab_files/pattern.bc")?;
+    let script = fs::read_to_string("examples/braincrab_files/number_testing.bc")?;
     println!("Parsing:\n\n{}\n", &script);
 
     let mut parser = BrainCrabParser::new();
@@ -22,10 +22,9 @@ pub fn main() -> Result<()> {
 
     println!("\nCompiling:\n");
 
-    let mut compiled_abf =
-        BrainCrabCompiler::compile_abf(parsed).expect("could not compile program");
+    let compiled_abf = BrainCrabCompiler::compile_abf(parsed).expect("could not compile program");
 
-    compiled_abf.optimize_addresses(10000);
+    //compiled_abf.optimize_addresses(10000);
 
     let compiled_bf = compiled_abf.to_bf();
 
@@ -36,6 +35,8 @@ pub fn main() -> Result<()> {
     let mut interpreter = BFInterpreter::new();
 
     interpreter.run(&compiled_bf);
+
+    println!("program length: {}", compiled_bf.to_string().len());
 
     Ok(())
 }

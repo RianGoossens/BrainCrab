@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use crate::{
     absolute_bf::{ABFProgram, ABFTree},
@@ -21,13 +21,13 @@ pub enum CompilerError {
 pub type CompileResult<A> = Result<A, CompilerError>;
 
 pub struct ScopedVariableMap<'a> {
-    pub variable_map_stack: Vec<HashMap<&'a str, Owned>>,
+    pub variable_map_stack: Vec<BTreeMap<&'a str, Owned>>,
 }
 
 impl<'a> Default for ScopedVariableMap<'a> {
     fn default() -> Self {
         Self {
-            variable_map_stack: vec![HashMap::new()],
+            variable_map_stack: vec![BTreeMap::new()],
         }
     }
 }
@@ -54,7 +54,7 @@ impl<'a> ScopedVariableMap<'a> {
     }
 
     pub fn start_scope(&mut self) {
-        self.variable_map_stack.push(HashMap::new());
+        self.variable_map_stack.push(BTreeMap::new());
     }
 
     pub fn end_scope(&mut self) -> Vec<Owned> {
