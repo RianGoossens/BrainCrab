@@ -524,7 +524,7 @@ impl BrainCrabParser {
                 &|p, s| Ok(p.literal(s, "-")?.with(BinaryOperator::Sub)),
                 &|p, s| Ok(p.literal(s, "*")?.with(BinaryOperator::Mul)),
                 &|p, s| Ok(p.literal(s, "/")?.with(BinaryOperator::Div)),
-                &|p, s| Ok(p.literal(s, "%")?.with(BinaryOperator::Div)),
+                &|p, s| Ok(p.literal(s, "%")?.with(BinaryOperator::Mod)),
                 &|p, s| Ok(p.literal(s, "&")?.with(BinaryOperator::And)),
                 &|p, s| Ok(p.literal(s, "|")?.with(BinaryOperator::Or)),
                 &|p, s| Ok(p.literal(s, "==")?.with(BinaryOperator::Eq)),
