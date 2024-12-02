@@ -367,6 +367,27 @@ impl<'a> BrainCrabCompiler<'a> {
         self.copy_on_top_of_cells(result.into(), &[destination])
     }
 
+    pub fn mod_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+        if let Value::Variable(variable) = &value {
+            let value_address = variable.address();
+            if value_address == destination {
+                assert!(!variable.is_owned(), "Attempting to mod a temp from itself, which is not allowed as it's already consumed");
+                self.zero(destination);
+                return Ok(());
+            }
+        }
+
+        let predicate =
+            self.eval_greater_than_equals(Value::new_borrow(destination), value.borrow())?;
+        let predicate = self.new_owned(predicate)?;
+        self.loop_while(predicate.address, |compiler| {
+            compiler.sub_assign(destination, value.borrow())?;
+            let new_predicate = compiler
+                .eval_greater_than_equals(Value::new_borrow(destination), value.borrow())?;
+            compiler.assign(predicate.address, new_predicate)
+        })
+    }
+
     pub fn not_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         self.if_then_else(
             value,
@@ -462,10 +483,6 @@ impl<'a> BrainCrabCompiler<'a> {
     fn eval_add(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_add(b))),
-            (Value::Variable(Variable::Owned(a)), b) => {
-                self.add_assign(a.address, b)?;
-                Ok(Value::owned(a))
-            }
             (a, Value::Variable(Variable::Owned(b))) => {
                 self.add_assign(b.address, a)?;
                 Ok(Value::owned(b))
@@ -482,10 +499,6 @@ impl<'a> BrainCrabCompiler<'a> {
     fn eval_mul(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_mul(b))),
-            (Value::Variable(Variable::Owned(a)), b) => {
-                self.mul_assign(a.address, b)?;
-                Ok(Value::owned(a))
-            }
             (a, Value::Variable(Variable::Owned(b))) => {
                 self.mul_assign(b.address, a)?;
                 Ok(Value::owned(b))
@@ -502,10 +515,6 @@ impl<'a> BrainCrabCompiler<'a> {
     fn eval_sub(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_sub(b))),
-            (Value::Variable(Variable::Owned(a)), b) => {
-                self.sub_assign(a.address, b)?;
-                Ok(Value::owned(a))
-            }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.sub_assign(temp.address, b)?;
@@ -518,13 +527,21 @@ impl<'a> BrainCrabCompiler<'a> {
     fn eval_div(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_div(b))),
-            (Value::Variable(Variable::Owned(a)), b) => {
-                self.div_assign(a.address, b)?;
-                Ok(a.into())
-            }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.div_assign(temp.address, b)?;
+
+                Ok(temp.into())
+            }
+        }
+    }
+
+    fn eval_mod(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        match (a, b) {
+            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a % b)),
+            (a, b) => {
+                let temp = self.new_owned(a)?;
+                self.mod_assign(temp.address, b)?;
 
                 Ok(temp.into())
             }
@@ -703,6 +720,11 @@ impl<'a> BrainCrabCompiler<'a> {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
                 self.eval_div(a, b)
+            }
+            Expression::Mod(a, b) => {
+                let a = self.eval_expression(*a)?;
+                let b = self.eval_expression(*b)?;
+                self.eval_mod(a, b)
             }
             Expression::Not(inner) => {
                 let inner = self.eval_expression(*inner)?;

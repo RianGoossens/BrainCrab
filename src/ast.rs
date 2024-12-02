@@ -7,6 +7,7 @@ pub enum Expression<'a> {
     Sub(Box<Expression<'a>>, Box<Expression<'a>>),
     Mul(Box<Expression<'a>>, Box<Expression<'a>>),
     Div(Box<Expression<'a>>, Box<Expression<'a>>),
+    Mod(Box<Expression<'a>>, Box<Expression<'a>>),
 
     Not(Box<Expression<'a>>),
     And(Box<Expression<'a>>, Box<Expression<'a>>),
@@ -38,6 +39,9 @@ impl<'a> Expression<'a> {
     }
     pub fn new_div(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::Div(Box::new(a), Box::new(b))
+    }
+    pub fn new_mod(a: Expression<'a>, b: Expression<'a>) -> Self {
+        Self::Mod(Box::new(a), Box::new(b))
     }
     pub fn new_not(a: Expression<'a>) -> Self {
         Self::Not(Box::new(a))
