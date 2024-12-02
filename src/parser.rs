@@ -570,9 +570,18 @@ impl BrainCrabParser {
         self.parse_binary_expression(string)
     }
 
+    pub fn parse_mutability<'a>(&mut self, string: &'a str) -> ParseResult<'a, bool> {
+        self.one_of(
+            string,
+            &[&|p, s| Ok(p.literal(s, "let")?.with(false)), &|p, s| {
+                Ok(p.literal(s, "mut")?.with(true))
+            }],
+        )
+    }
+
     pub fn parse_definition<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
         let start_location = self.index;
-        self.literal(string, "let")?;
+        let mutable = self.parse_mutability(string)?.value;
         self.whitespace(string)?;
         let name = self.parse_variable_name(string)?.value;
         self.optional(string, Self::whitespace)?;
@@ -583,6 +592,7 @@ impl BrainCrabParser {
         self.literal(string, ";")?;
         let result = Instruction::Define {
             name,
+            mutable,
             value: expression,
         };
         self.success(string, result, start_location, self.index - start_location)

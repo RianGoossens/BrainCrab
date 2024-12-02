@@ -88,6 +88,7 @@ impl<'a> From<&'a str> for Expression<'a> {
 pub enum Instruction<'a> {
     Define {
         name: &'a str,
+        mutable: bool,
         value: Expression<'a>,
     },
     Assign {

@@ -13,16 +13,19 @@ fn main() -> io::Result<()> {
             },
             Instruction::Define {
                 name: "x",
+                mutable: true,
                 value: Expression::constant(b'H'),
             },
             Instruction::Define {
                 name: "y",
+                mutable: true,
                 value: Expression::constant(b'i'),
             },
             Instruction::Write { name: "x" },
             Instruction::Write { name: "y" },
             Instruction::Define {
                 name: "z",
+                mutable: true,
                 value: Expression::variable("y"),
             },
             Instruction::AddAssign {
@@ -36,10 +39,12 @@ fn main() -> io::Result<()> {
             Instruction::Write { name: "z" },
             Instruction::Define {
                 name: "abc",
+                mutable: true,
                 value: Expression::constant(128),
             },
             Instruction::Define {
                 name: "lol",
+                mutable: true,
                 value: Expression::constant(b'X'),
             },
             Instruction::While {
@@ -47,6 +52,7 @@ fn main() -> io::Result<()> {
                 body: vec![
                     Instruction::Define {
                         name: "lol",
+                        mutable: true,
                         value: Expression::constant(b'Y'),
                     },
                     Instruction::Write { name: "abc" },
@@ -64,6 +70,7 @@ fn main() -> io::Result<()> {
         instructions: vec![
             Instruction::Define {
                 name: "x",
+                mutable: true,
                 value: Expression::new_add(Expression::constant(1), Expression::constant(2)),
             },
             Instruction::Assign {
@@ -91,6 +98,7 @@ fn main() -> io::Result<()> {
         instructions: vec![
             Instruction::Define {
                 name: "x",
+                mutable: true,
                 value: Expression::constant(10),
             },
             Instruction::While {
@@ -148,18 +156,22 @@ fn main() -> io::Result<()> {
         instructions: vec![
             Instruction::Define {
                 name: "x",
+                mutable: true,
                 value: 10.into(),
             },
             Instruction::Define {
                 name: "y",
+                mutable: true,
                 value: 5.into(),
             },
             Instruction::Define {
                 name: "x<=y",
+                mutable: true,
                 value: 0.into(),
             },
             Instruction::Define {
                 name: "loopvar",
+                mutable: true,
                 value: 1.into(),
             },
             Instruction::While {
@@ -202,14 +214,17 @@ fn main() -> io::Result<()> {
         instructions: vec![
             Instruction::Define {
                 name: "x",
+                mutable: true,
                 value: 10.into(),
             },
             Instruction::Define {
                 name: "y",
+                mutable: true,
                 value: 15.into(),
             },
             Instruction::Define {
                 name: "x<=y",
+                mutable: true,
                 value: Expression::new_less_than("x".into(), "y".into()),
             },
         ],

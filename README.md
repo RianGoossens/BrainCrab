@@ -15,7 +15,6 @@ Here are my upcoming tasks.
 - Rewrite examples in main to actual examples
 - Types? (u8, bool, structs, arrays...)
 - Macros
-- Const vs mut
 - Make Write work with expressions
 - Make read work as an expression
 - Named constant optimization

@@ -4,12 +4,15 @@ use crate::{allocator::BrainCrabAllocator, compiler::AddressPool};
 pub struct Owned {
     pub address: u16,
     pub address_pool: AddressPool,
-    pub dirty: bool,
+    pub mutable: bool,
 }
 
 impl Owned {
     pub fn borrow(&self) -> Variable {
-        Variable::Borrow(self.address)
+        Variable::Borrow {
+            address: self.address,
+            mutable: self.mutable,
+        }
     }
 }
 
@@ -22,7 +25,7 @@ impl Drop for Owned {
 #[derive(PartialEq, Eq)]
 pub enum Variable {
     Owned(Owned),
-    Borrow(u16),
+    Borrow { address: u16, mutable: bool },
 }
 
 impl Variable {
@@ -32,13 +35,22 @@ impl Variable {
     pub fn address(&self) -> u16 {
         match self {
             Variable::Owned(owned) => owned.address,
-            Variable::Borrow(address) => *address,
+            Variable::Borrow { address, .. } => *address,
         }
     }
     pub fn borrow(&self) -> Self {
         match self {
             Variable::Owned(owned) => owned.borrow(),
-            Variable::Borrow(address) => Variable::Borrow(*address),
+            Variable::Borrow { address, mutable } => Variable::Borrow {
+                address: *address,
+                mutable: *mutable,
+            },
+        }
+    }
+    pub fn is_mutable(&self) -> bool {
+        match self {
+            Variable::Owned(owned) => owned.mutable,
+            Variable::Borrow { mutable, .. } => *mutable,
         }
     }
 }
@@ -61,7 +73,10 @@ impl Value {
     }
 
     pub fn new_borrow(address: u16) -> Self {
-        Self::Variable(Variable::Borrow(address))
+        Self::Variable(Variable::Borrow {
+            address,
+            mutable: false,
+        })
     }
 
     pub fn owned(owned: Owned) -> Self {
@@ -72,6 +87,13 @@ impl Value {
         match self {
             Value::Constant(x) => (*x).into(),
             Value::Variable(variable) => Value::Variable(variable.borrow()),
+        }
+    }
+
+    pub fn is_mutable(&self) -> bool {
+        match self {
+            Value::Constant(_) => false,
+            Value::Variable(variable) => variable.is_mutable(),
         }
     }
 }
