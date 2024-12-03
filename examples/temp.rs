@@ -21,8 +21,12 @@ fn main() -> io::Result<()> {
                 mutable: true,
                 value: Expression::constant(b'i'),
             },
-            Instruction::Write { name: "x" },
-            Instruction::Write { name: "y" },
+            Instruction::Write {
+                expression: Expression::variable("x"),
+            },
+            Instruction::Write {
+                expression: Expression::variable("y"),
+            },
             Instruction::Define {
                 name: "z",
                 mutable: true,
@@ -36,7 +40,9 @@ fn main() -> io::Result<()> {
                 name: "z",
                 value: Expression::constant(0),
             },
-            Instruction::Write { name: "z" },
+            Instruction::Write {
+                expression: Expression::variable("z"),
+            },
             Instruction::Define {
                 name: "abc",
                 mutable: true,
@@ -55,15 +61,21 @@ fn main() -> io::Result<()> {
                         mutable: true,
                         value: Expression::constant(b'Y'),
                     },
-                    Instruction::Write { name: "abc" },
+                    Instruction::Write {
+                        expression: Expression::variable("abc"),
+                    },
                     Instruction::SubAssign {
                         name: "abc",
                         value: Expression::constant(1),
                     },
-                    Instruction::Write { name: "lol" },
+                    Instruction::Write {
+                        expression: Expression::variable("lol"),
+                    },
                 ],
             },
-            Instruction::Write { name: "lol" },
+            Instruction::Write {
+                expression: Expression::variable("lol"),
+            },
         ],
     };
     let _program = Program {

@@ -675,14 +675,12 @@ impl BrainCrabParser {
         self.optional(string, Self::whitespace)?;
         self.literal(string, "(")?;
         self.optional(string, Self::whitespace)?;
-        let variable_name = self.parse_variable_name(string)?.value;
+        let expression = self.parse_expression(string)?.value;
         self.optional(string, Self::whitespace)?;
         self.literal(string, ")")?;
         self.optional(string, Self::whitespace)?;
         self.literal(string, ";")?;
-        let result = Instruction::Write {
-            name: variable_name,
-        };
+        let result = Instruction::Write { expression };
         self.success(string, result, start_location, self.index - start_location)
     }
 

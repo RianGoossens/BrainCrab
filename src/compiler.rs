@@ -893,9 +893,9 @@ impl<'a> BrainCrabCompiler<'a> {
                     let value = self.eval_expression(value)?;
                     self.sub_assign(destination.address(), value)?;
                 }
-                Instruction::Write { name } => {
-                    let source = self.borrow_immutable(name)?;
-                    self.write_value(source)?;
+                Instruction::Write { expression } => {
+                    let value = self.eval_expression(expression)?;
+                    self.write_value(value)?;
                 }
                 Instruction::Read { name } => {
                     let destination = self.borrow_mutable(name)?;

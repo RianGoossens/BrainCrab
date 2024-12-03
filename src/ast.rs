@@ -104,7 +104,7 @@ pub enum Instruction<'a> {
         value: Expression<'a>,
     },
     Write {
-        name: &'a str,
+        expression: Expression<'a>,
     },
     Read {
         name: &'a str,
