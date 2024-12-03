@@ -1,0 +1,17 @@
+print("CAPITALIZER!\n");
+print("------------\n\n");
+
+let to_uppercase = 'A' - 'a';
+
+mut x = 0;
+while x != '\n' {
+    read(x);
+    
+    if x != '\n' {
+        if x >= 'a' & x <= 'z' {
+            x += to_uppercase;
+        }
+        write(x);
+    }
+}
+print("\n\nProgram ended, enjoy your capitalized string.");

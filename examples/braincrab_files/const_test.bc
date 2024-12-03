@@ -1,0 +1,8 @@
+let three = 3;
+let x = 5 + three * 2;
+
+let y = x * x;
+
+let z = y + (x > 3);
+let w = z % 100;
+write(w);

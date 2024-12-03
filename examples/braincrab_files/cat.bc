@@ -1,0 +1,5 @@
+mut x = 0;
+while x != '\n' {
+    read(x);
+    write(x);
+}

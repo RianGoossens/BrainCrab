@@ -1,0 +1,14 @@
+mut i = 0;
+while i < 10 {
+    let test = 'A' + i;
+    write(test);
+    i += 1;
+}
+
+
+let test = 0;
+if test <= 3 {
+    print("correct");
+} else {
+    print("incorrect");
+}
