@@ -10,6 +10,10 @@ A Brainfuck CLI. Toolchain for a programming language that compiles down to Brai
 ## TODO
 Here are my upcoming tasks.
 - Refine repl, perhaps use crossterm or even ratatui?
+- Improve Cli code
+- Compiler flags
+  - debug could keep comments or even code inside the .bf file
+  - optimized could do the address optimization and others
 
 ### Braincrab Language TODO
 - Rewrite examples in main to actual examples
@@ -17,10 +21,3 @@ Here are my upcoming tasks.
 - Macros
 - Make read work as an expression
 - Comments
-- Compiler flags
-  - debug could keep comments or even code inside the .bf file
-  - optimized could do the address optimization and others
-- Improve Cli code
-
-#### Parser Todo
-- macros?
