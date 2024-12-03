@@ -17,12 +17,13 @@ pub enum CompilerError {
     UnclosedLoop,
     NonAsciiString(String),
     MutableBorrowOfImmutableVariable(String),
+    CantRegisterBorrowedValues(String),
 }
 
 pub type CompileResult<A> = Result<A, CompilerError>;
 
 pub struct ScopedVariableMap<'a> {
-    pub variable_map_stack: Vec<BTreeMap<&'a str, Owned>>,
+    pub variable_map_stack: Vec<BTreeMap<&'a str, Value>>,
 }
 
 impl<'a> Default for ScopedVariableMap<'a> {
@@ -34,7 +35,7 @@ impl<'a> Default for ScopedVariableMap<'a> {
 }
 
 impl<'a> ScopedVariableMap<'a> {
-    pub fn borrow_variable(&self, name: &'a str) -> Option<Variable> {
+    pub fn borrow_variable(&self, name: &'a str) -> Option<Value> {
         for variable_map in self.variable_map_stack.iter().rev() {
             if let Some(result) = variable_map.get(name) {
                 return Some(result.borrow());
@@ -47,7 +48,7 @@ impl<'a> ScopedVariableMap<'a> {
         self.variable_map_stack.last().unwrap().contains_key(name)
     }
 
-    pub fn register(&mut self, name: &'a str, value: Owned) {
+    pub fn register(&mut self, name: &'a str, value: Value) {
         self.variable_map_stack
             .last_mut()
             .unwrap()
@@ -60,7 +61,16 @@ impl<'a> ScopedVariableMap<'a> {
 
     pub fn end_scope(&mut self) -> Vec<Owned> {
         let last_variable_map = self.variable_map_stack.pop().unwrap();
-        last_variable_map.into_values().collect()
+        last_variable_map
+            .into_values()
+            .filter_map(|x| {
+                if let Value::Variable(Variable::Owned(owned)) = x {
+                    Some(owned)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 
@@ -115,13 +125,20 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn register_variable(&mut self, name: &'a str, owned: Owned) -> CompileResult<u16> {
+    pub fn register_variable(&mut self, name: &'a str, value: Value) -> CompileResult<Value> {
         if self.variable_map.defined_in_current_scope(name) {
             Err(CompilerError::AlreadyDefinedVariable(name.into()))
         } else {
-            let address = owned.address;
-            self.variable_map.register(name, owned);
-            Ok(address)
+            match &value {
+                Value::Variable(Variable::Borrow { .. }) => {
+                    Err(CompilerError::CantRegisterBorrowedValues(name.into()))
+                }
+                _ => {
+                    let borrowed = value.borrow();
+                    self.variable_map.register(name, value);
+                    Ok(borrowed)
+                }
+            }
         }
     }
 
@@ -130,17 +147,19 @@ impl<'a> BrainCrabCompiler<'a> {
         name: &'a str,
         value: Value,
         mutable: bool,
-    ) -> CompileResult<u16> {
-        let mut owned = self.allocate()?;
-        owned.mutable = mutable;
-        self.n_times(value, |compiler| {
-            compiler.add_to(owned.address, 1);
-            Ok(())
-        })?;
-        self.register_variable(name, owned)
+    ) -> CompileResult<Value> {
+        if mutable || matches!(value, Value::Variable(_)) {
+            let mut owned = self.new_owned(value)?;
+            owned.mutable = mutable;
+            let borrow = owned.borrow();
+            self.register_variable(name, owned.into())?;
+            Ok(borrow.into())
+        } else {
+            self.register_variable(name, value)
+        }
     }
 
-    pub fn borrow_immutable(&self, name: &'a str) -> CompileResult<Variable> {
+    pub fn borrow_immutable(&self, name: &'a str) -> CompileResult<Value> {
         if let Some(variable) = self.variable_map.borrow_variable(name) {
             Ok(variable)
         } else {
@@ -151,10 +170,9 @@ impl<'a> BrainCrabCompiler<'a> {
     pub fn borrow_mutable(&self, name: &'a str) -> CompileResult<Variable> {
         let result = self.borrow_immutable(name)?;
 
-        if result.is_mutable() {
-            Ok(result)
-        } else {
-            Err(CompilerError::MutableBorrowOfImmutableVariable(name.into()))
+        match result {
+            Value::Variable(variable) if variable.is_mutable() => Ok(variable),
+            _ => Err(CompilerError::MutableBorrowOfImmutableVariable(name.into())),
         }
     }
 
@@ -210,6 +228,7 @@ impl<'a> BrainCrabCompiler<'a> {
         Ok(())
     }
 
+    // Utilities
     pub fn if_then<I: FnOnce(&mut Self) -> CompileResult<()>>(
         &mut self,
         predicate: Value,
@@ -233,7 +252,7 @@ impl<'a> BrainCrabCompiler<'a> {
             }
         }
     }
-    // Utilities
+
     pub fn if_then_else<
         I: FnOnce(&mut Self) -> CompileResult<()>,
         E: FnOnce(&mut Self) -> CompileResult<()>,
@@ -306,6 +325,21 @@ impl<'a> BrainCrabCompiler<'a> {
             },
         }
         Ok(())
+    }
+
+    pub fn write_value(&mut self, value: Value) -> CompileResult<()> {
+        match &value {
+            Value::Variable(Variable::Borrow { address, .. }) => {
+                self.write(*address);
+                Ok(())
+            }
+            _ => {
+                let owned = self.new_owned(value)?;
+                self.write(owned.address);
+                self.zero(owned.address);
+                Ok(())
+            }
+        }
     }
 
     pub fn zero(&mut self, address: u16) {
@@ -712,10 +746,7 @@ impl<'a> BrainCrabCompiler<'a> {
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
             Expression::Constant(value) => Ok(Value::constant(value)),
-            Expression::Variable(name) => {
-                let variable = self.borrow_immutable(name)?;
-                Ok(variable.into())
-            }
+            Expression::Variable(name) => self.borrow_immutable(name),
             Expression::Add(a, b) => {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
@@ -806,7 +837,19 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             Expression::Variable(variable) => {
                 let predicate = self.borrow_immutable(variable)?;
-                self.loop_while(predicate.address(), body)
+                match predicate {
+                    Value::Constant(predicate) => {
+                        if predicate > 0 {
+                            // Infinite loop
+                            let temp = self.new_owned(1)?;
+                            self.loop_while(temp.address, body)
+                        } else {
+                            // Nothing to do here
+                            Ok(())
+                        }
+                    }
+                    Value::Variable(predicate) => self.loop_while(predicate.address(), body),
+                }
             }
             _ => {
                 let predicate_value = self.eval_expression(predicate.clone())?;
@@ -852,7 +895,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 }
                 Instruction::Write { name } => {
                     let source = self.borrow_immutable(name)?;
-                    self.write(source.address());
+                    self.write_value(source)?;
                 }
                 Instruction::Read { name } => {
                     let destination = self.borrow_mutable(name)?;

@@ -17,7 +17,6 @@ Here are my upcoming tasks.
 - Macros
 - Make Write work with expressions
 - Make read work as an expression
-- Named constant optimization
 - Comments
 - Compiler flags
   - debug could keep comments or even code inside the .bf file
