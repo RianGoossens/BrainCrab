@@ -18,6 +18,9 @@ Here are my upcoming tasks.
 ### Braincrab Language TODO
 - Rewrite examples in main to actual examples
 - Types? (u8, bool, structs, arrays...)
+  - u8 vs bool type
+  - tuples/arrays
+  - structs
 - Macros
 - Make read work as an expression
 - Comments
