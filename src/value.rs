@@ -1,16 +1,18 @@
-use crate::{allocator::BrainCrabAllocator, compiler::AddressPool};
+use crate::{allocator::BrainCrabAllocator, compiler::AddressPool, types::Type};
 
 #[derive(PartialEq, Eq)]
 pub struct Owned {
     pub address: u16,
-    pub address_pool: AddressPool,
+    pub value_type: Type,
     pub mutable: bool,
+    pub address_pool: AddressPool,
 }
 
 impl Owned {
     pub fn borrow(&self) -> Variable {
         Variable::Borrow {
             address: self.address,
+            value_type: self.value_type,
             mutable: self.mutable,
         }
     }
@@ -25,7 +27,11 @@ impl Drop for Owned {
 #[derive(PartialEq, Eq)]
 pub enum Variable {
     Owned(Owned),
-    Borrow { address: u16, mutable: bool },
+    Borrow {
+        address: u16,
+        value_type: Type,
+        mutable: bool,
+    },
 }
 
 impl Variable {
@@ -41,8 +47,13 @@ impl Variable {
     pub fn borrow(&self) -> Self {
         match self {
             Variable::Owned(owned) => owned.borrow(),
-            Variable::Borrow { address, mutable } => Variable::Borrow {
+            Variable::Borrow {
+                address,
+                value_type,
+                mutable,
+            } => Variable::Borrow {
                 address: *address,
+                value_type: *value_type,
                 mutable: *mutable,
             },
         }
@@ -51,6 +62,12 @@ impl Variable {
         match self {
             Variable::Owned(owned) => owned.mutable,
             Variable::Borrow { mutable, .. } => *mutable,
+        }
+    }
+    pub fn value_type(&self) -> Type {
+        match self {
+            Variable::Owned(owned) => owned.value_type,
+            Variable::Borrow { value_type, .. } => *value_type,
         }
     }
 }
@@ -72,9 +89,10 @@ impl Value {
         Self::Constant(value)
     }
 
-    pub fn new_borrow(address: u16) -> Self {
+    pub fn new_borrow(address: u16, value_type: Type) -> Self {
         Self::Variable(Variable::Borrow {
             address,
+            value_type,
             mutable: false,
         })
     }
@@ -94,6 +112,13 @@ impl Value {
         match self {
             Value::Constant(_) => false,
             Value::Variable(variable) => variable.is_mutable(),
+        }
+    }
+
+    pub fn value_type(&self) -> Type {
+        match self {
+            Value::Constant(_) => Type::U8,
+            Value::Variable(variable) => variable.value_type(),
         }
     }
 }

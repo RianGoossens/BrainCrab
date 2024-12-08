@@ -4,4 +4,5 @@ pub mod ast;
 pub mod cli;
 pub mod compiler;
 pub mod parser;
+mod types;
 mod value;

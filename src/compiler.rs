@@ -4,6 +4,7 @@ use crate::{
     absolute_bf::{ABFProgram, ABFTree},
     allocator::BrainCrabAllocator,
     ast::{Expression, Instruction, Program},
+    types::Type,
     value::{Owned, Value, Variable},
 };
 
@@ -113,10 +114,11 @@ impl<'a> BrainCrabCompiler<'a> {
 
     // Memory management
 
-    pub fn allocate(&mut self) -> CompileResult<Owned> {
+    pub fn allocate(&mut self, value_type: Type) -> CompileResult<Owned> {
         if let Some(address) = self.address_pool.borrow_mut().allocate(0) {
             Ok(Owned {
                 address,
+                value_type,
                 address_pool: self.address_pool.clone(),
                 mutable: true,
             })
@@ -181,7 +183,7 @@ impl<'a> BrainCrabCompiler<'a> {
         match value {
             Value::Variable(Variable::Owned(owned)) => Ok(owned),
             _ => {
-                let owned = self.allocate()?;
+                let owned = self.allocate(value.value_type())?;
                 self.add_assign(owned.address, value)?;
                 Ok(owned)
             }
@@ -380,7 +382,7 @@ impl<'a> BrainCrabCompiler<'a> {
     pub fn mul_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         let result = self.new_owned(0)?;
         self.n_times(value, move |compiler| {
-            compiler.add_assign(result.address, Value::new_borrow(destination))?;
+            compiler.add_assign(result.address, Value::new_borrow(destination, Type::U8))?;
             Ok(())
         })?;
         self.assign(destination, result.into())
@@ -399,8 +401,8 @@ impl<'a> BrainCrabCompiler<'a> {
         let result = self.new_owned(0)?;
 
         self.loop_while(destination, |compiler| {
-            let predicate =
-                compiler.eval_less_than_equals(value.borrow(), Value::new_borrow(destination))?;
+            let predicate = compiler
+                .eval_less_than_equals(value.borrow(), Value::new_borrow(destination, Type::U8))?;
             compiler.if_then_else(
                 predicate,
                 |compiler| {
@@ -426,13 +428,15 @@ impl<'a> BrainCrabCompiler<'a> {
             }
         }
 
-        let predicate =
-            self.eval_greater_than_equals(Value::new_borrow(destination), value.borrow())?;
+        let predicate = self
+            .eval_greater_than_equals(Value::new_borrow(destination, Type::U8), value.borrow())?;
         let predicate = self.new_owned(predicate)?;
         self.loop_while(predicate.address, |compiler| {
             compiler.sub_assign(destination, value.borrow())?;
-            let new_predicate = compiler
-                .eval_greater_than_equals(Value::new_borrow(destination), value.borrow())?;
+            let new_predicate = compiler.eval_greater_than_equals(
+                Value::new_borrow(destination, Type::U8),
+                value.borrow(),
+            )?;
             compiler.assign(predicate.address, new_predicate)
         })
     }
@@ -459,7 +463,7 @@ impl<'a> BrainCrabCompiler<'a> {
     }
     pub fn or_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         self.if_then_else(
-            Value::new_borrow(destination),
+            Value::new_borrow(destination, Type::Bool),
             |_| Ok(()),
             |compiler| {
                 compiler.if_then(value, |compiler| compiler.add_assign(destination, 1.into()))
@@ -612,7 +616,7 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             Value::Variable(Variable::Borrow { address, .. }) => {
                 let result = self.new_owned(0)?;
-                self.not_assign(result.address, Value::new_borrow(address))?;
+                self.not_assign(result.address, Value::new_borrow(address, Type::Bool))?;
                 Ok(result.into())
             }
         }
