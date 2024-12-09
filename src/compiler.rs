@@ -174,7 +174,6 @@ impl<'a> BrainCrabCompiler<'a> {
             _ => {
                 let owned = self.allocate(value.value_type())?;
                 self.add_assign(owned.address, value)?;
-                println!("{:?}", owned.value_type);
                 Ok(owned)
             }
         }
@@ -918,10 +917,14 @@ impl<'a> BrainCrabCompiler<'a> {
             match instruction {
                 Instruction::Define {
                     name,
+                    value_type,
                     mutable,
                     value,
                 } => {
                     let value = self.eval_expression(value)?;
+                    if let Some(value_type) = value_type {
+                        value.type_check(value_type)?;
+                    }
                     self.new_variable(name, value, mutable)?;
                 }
                 Instruction::Assign { name, value } => {
@@ -964,6 +967,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     else_body,
                 } => {
                     let predicate = self.eval_expression(predicate)?;
+                    predicate.type_check(Type::Bool)?;
                     if else_body.is_empty() {
                         self.if_then(predicate, |compiler| compiler.compile_instructions(if_body))?;
                     } else {

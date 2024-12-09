@@ -1,6 +1,9 @@
 use std::{collections::BTreeSet, fmt::Display};
 
-use crate::ast::{Expression, Instruction, Program};
+use crate::{
+    ast::{Expression, Instruction, Program},
+    types::Type,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ParseErrorMessage {
@@ -420,7 +423,7 @@ impl BrainCrabParser {
         })
     }
 
-    pub fn parse_u8_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, u8> {
+    pub fn parse_u8_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
         let start_location = self.index;
         let mut number = self.digit(string)?.value;
         let mut len = 1;
@@ -434,10 +437,10 @@ impl BrainCrabParser {
             number += digit;
             len += 1;
         }
-        self.success(string, number, start_location, len)
+        self.success(string, number.into(), start_location, len)
     }
 
-    pub fn parse_char_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, u8> {
+    pub fn parse_char_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
         let start_location = self.index;
         self.literal(string, "'")?;
         let char = self
@@ -446,18 +449,31 @@ impl BrainCrabParser {
         self.literal(string, "'")?;
         self.success(
             string,
-            char as u8,
+            (char as u8).into(),
             start_location,
             self.index - start_location,
+        )
+    }
+
+    pub fn parse_bool_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+        self.one_of(
+            string,
+            &[
+                &|p, s| p.literal(s, "true").map(|x| x.with(true.into())),
+                &|p, s| p.literal(s, "false").map(|x| x.with(false.into())),
+            ],
         )
     }
 
     pub fn parse_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
         self.one_of(
             string,
-            &[&Self::parse_u8_constant, &Self::parse_char_constant],
+            &[
+                &Self::parse_u8_constant,
+                &Self::parse_char_constant,
+                &Self::parse_bool_constant,
+            ],
         )
-        .map(|x| x.map(|x| x.into()))
     }
 
     pub fn parse_variable_name<'a>(&mut self, string: &'a str) -> ParseResult<'a, &'a str> {
@@ -570,6 +586,16 @@ impl BrainCrabParser {
         self.parse_binary_expression(string)
     }
 
+    pub fn parse_type<'a>(&mut self, string: &'a str) -> ParseResult<'a, Type> {
+        self.one_of(
+            string,
+            &[
+                &|p, s| p.literal(s, "u8").map(|x| x.with(Type::U8)),
+                &|p, s| p.literal(s, "bool").map(|x| x.with(Type::Bool)),
+            ],
+        )
+    }
+
     pub fn parse_mutability<'a>(&mut self, string: &'a str) -> ParseResult<'a, bool> {
         self.one_of(
             string,
@@ -585,6 +611,18 @@ impl BrainCrabParser {
         self.whitespace(string)?;
         let name = self.parse_variable_name(string)?.value;
         self.optional(string, Self::whitespace)?;
+
+        let value_type = self
+            .optional(string, |p, s| {
+                let start_index = p.index;
+                p.literal(s, ":")?;
+                p.optional(s, Self::whitespace)?;
+                let value_type = p.parse_type(s)?.value;
+                p.optional(s, Self::whitespace)?;
+                p.success(s, value_type, start_index, p.index - start_index)
+            })?
+            .value;
+
         self.literal(string, "=")?;
         self.optional(string, Self::whitespace)?;
         let expression = self.parse_expression(string)?.value;
@@ -592,6 +630,7 @@ impl BrainCrabParser {
         self.literal(string, ";")?;
         let result = Instruction::Define {
             name,
+            value_type,
             mutable,
             value: expression,
         };

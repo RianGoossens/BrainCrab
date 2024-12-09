@@ -1,4 +1,4 @@
-use crate::constant_value::ConstantValue;
+use crate::{constant_value::ConstantValue, types::Type};
 
 #[derive(Debug, Clone)]
 pub enum Expression<'a> {
@@ -90,6 +90,7 @@ impl<'a> From<&'a str> for Expression<'a> {
 pub enum Instruction<'a> {
     Define {
         name: &'a str,
+        value_type: Option<Type>,
         mutable: bool,
         value: Expression<'a>,
     },
