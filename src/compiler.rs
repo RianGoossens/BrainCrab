@@ -5,6 +5,7 @@ use crate::{
     allocator::BrainCrabAllocator,
     ast::{Expression, Instruction, Program},
     compiler_error::{CompileResult, CompilerError},
+    constant_value::ConstantValue,
     types::Type,
     value::{Owned, Value, Variable},
 };
@@ -173,6 +174,7 @@ impl<'a> BrainCrabCompiler<'a> {
             _ => {
                 let owned = self.allocate(value.value_type())?;
                 self.add_assign(owned.address, value)?;
+                println!("{:?}", owned.value_type);
                 Ok(owned)
             }
         }
@@ -284,11 +286,18 @@ impl<'a> BrainCrabCompiler<'a> {
         f: F,
     ) -> CompileResult<()> {
         match n {
-            Value::Constant(n) => {
-                for _ in 0..n.get_u8()? {
-                    self.scoped(|compiler| f(compiler))?
+            Value::Constant(n) => match n {
+                ConstantValue::U8(n) => {
+                    for _ in 0..n {
+                        self.scoped(|compiler| f(compiler))?
+                    }
                 }
-            }
+                ConstantValue::Bool(n) => {
+                    if n {
+                        self.scoped(|compiler| f(compiler))?
+                    }
+                }
+            },
             Value::Variable(variable) => match variable {
                 Variable::Owned(temp) => {
                     self.loop_while(temp.address, |compiler| {
@@ -522,6 +531,8 @@ impl<'a> BrainCrabCompiler<'a> {
     // Expressions
 
     fn eval_add(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        a.type_check(Type::U8)?;
+        b.type_check(Type::U8)?;
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
                 let a = a.get_u8()?;
@@ -542,6 +553,8 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_mul(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        a.type_check(Type::U8)?;
+        b.type_check(Type::U8)?;
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
                 let a = a.get_u8()?;
@@ -562,6 +575,8 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_sub(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        a.type_check(Type::U8)?;
+        b.type_check(Type::U8)?;
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
                 let a = a.get_u8()?;
@@ -578,6 +593,8 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_div(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        a.type_check(Type::U8)?;
+        b.type_check(Type::U8)?;
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
                 let a = a.get_u8()?;
@@ -594,6 +611,8 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_mod(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        a.type_check(Type::U8)?;
+        b.type_check(Type::U8)?;
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
                 let a = a.get_u8()?;
@@ -610,6 +629,7 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_not(&mut self, inner: Value) -> CompileResult<Value> {
+        inner.type_check(Type::Bool)?;
         match inner {
             Value::Constant(value) => {
                 if value.get_bool()? {
@@ -631,6 +651,8 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_and(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        a.type_check(Type::Bool)?;
+        b.type_check(Type::Bool)?;
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
                 let a = a.get_bool()?;
@@ -655,6 +677,8 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_or(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        a.type_check(Type::Bool)?;
+        b.type_check(Type::Bool)?;
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
                 let a = a.get_bool()?;
@@ -679,6 +703,8 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_not_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+        a.type_check(Type::U8)?;
+        b.type_check(Type::U8)?;
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
                 let a = a.get_u8()?;
@@ -717,8 +743,8 @@ impl<'a> BrainCrabCompiler<'a> {
             (a, b) => {
                 let a_temp = self.new_owned(a)?;
                 let b_temp = self.new_owned(b)?;
-                let result = self.new_owned(0)?;
-                let loop_value = self.new_owned(1)?;
+                let result = self.new_owned(false)?;
+                let loop_value = self.new_owned(true)?;
                 self.loop_while(loop_value.address, |compiler| {
                     compiler.if_then_else(
                         a_temp.borrow().into(),

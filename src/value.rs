@@ -1,9 +1,12 @@
 use crate::{
-    allocator::BrainCrabAllocator, compiler::AddressPool, constant_value::ConstantValue,
+    allocator::BrainCrabAllocator,
+    compiler::AddressPool,
+    compiler_error::{CompileResult, CompilerError},
+    constant_value::ConstantValue,
     types::Type,
 };
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Owned {
     pub address: u16,
     pub value_type: Type,
@@ -27,7 +30,7 @@ impl Drop for Owned {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Variable {
     Owned(Owned),
     Borrow {
@@ -81,7 +84,7 @@ impl From<Owned> for Variable {
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Value {
     Constant(ConstantValue),
     Variable(Variable),
@@ -120,8 +123,19 @@ impl Value {
 
     pub fn value_type(&self) -> Type {
         match self {
-            Value::Constant(_) => Type::U8,
+            Value::Constant(value) => value.value_type(),
             Value::Variable(variable) => variable.value_type(),
+        }
+    }
+
+    pub fn type_check(&self, expected: Type) -> CompileResult<()> {
+        if self.value_type() == expected {
+            Ok(())
+        } else {
+            Err(CompilerError::TypeError {
+                expected,
+                actual: self.value_type(),
+            })
         }
     }
 }
