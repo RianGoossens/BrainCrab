@@ -1,6 +1,8 @@
+use crate::constant_value::ConstantValue;
+
 #[derive(Debug, Clone)]
 pub enum Expression<'a> {
-    Constant(u8),
+    Constant(ConstantValue),
     Variable(&'a str),
 
     Add(Box<Expression<'a>>, Box<Expression<'a>>),
@@ -22,8 +24,8 @@ pub enum Expression<'a> {
 }
 
 impl<'a> Expression<'a> {
-    pub fn constant(value: u8) -> Self {
-        Self::Constant(value)
+    pub fn constant<A: Into<ConstantValue>>(value: A) -> Self {
+        Self::Constant(value.into())
     }
     pub fn variable(name: &'a str) -> Self {
         Self::Variable(name)
@@ -72,8 +74,8 @@ impl<'a> Expression<'a> {
     }
 }
 
-impl<'a> From<u8> for Expression<'a> {
-    fn from(value: u8) -> Self {
+impl<'a, A: Into<ConstantValue>> From<A> for Expression<'a> {
+    fn from(value: A) -> Self {
         Expression::constant(value)
     }
 }

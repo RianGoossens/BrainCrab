@@ -3,6 +3,8 @@ mod allocator;
 pub mod ast;
 pub mod cli;
 pub mod compiler;
+pub mod compiler_error;
+pub mod constant_value;
 pub mod parser;
 mod types;
 mod value;

@@ -4,24 +4,12 @@ use crate::{
     absolute_bf::{ABFProgram, ABFTree},
     allocator::BrainCrabAllocator,
     ast::{Expression, Instruction, Program},
+    compiler_error::{CompileResult, CompilerError},
     types::Type,
     value::{Owned, Value, Variable},
 };
 
 pub type AddressPool = Rc<RefCell<Vec<u16>>>;
-
-#[derive(Debug)]
-pub enum CompilerError {
-    UndefinedVariable(String),
-    AlreadyDefinedVariable(String),
-    NoFreeAddresses,
-    UnclosedLoop,
-    NonAsciiString(String),
-    MutableBorrowOfImmutableVariable(String),
-    CantRegisterBorrowedValues(String),
-}
-
-pub type CompileResult<A> = Result<A, CompilerError>;
 
 pub struct ScopedVariableMap<'a> {
     pub variable_map_stack: Vec<BTreeMap<&'a str, Value>>,
@@ -238,7 +226,7 @@ impl<'a> BrainCrabCompiler<'a> {
     ) -> CompileResult<()> {
         match predicate {
             Value::Constant(value) => {
-                if value > 0 {
+                if value.get_bool()? {
                     body(self)
                 } else {
                     Ok(())
@@ -266,7 +254,7 @@ impl<'a> BrainCrabCompiler<'a> {
     ) -> CompileResult<()> {
         match predicate {
             Value::Constant(value) => {
-                if value > 0 {
+                if value.get_bool()? {
                     if_case(self)
                 } else {
                     else_case(self)
@@ -297,7 +285,7 @@ impl<'a> BrainCrabCompiler<'a> {
     ) -> CompileResult<()> {
         match n {
             Value::Constant(n) => {
-                for _ in 0..n {
+                for _ in 0..n.get_u8()? {
                     self.scoped(|compiler| f(compiler))?
                 }
             }
@@ -535,7 +523,11 @@ impl<'a> BrainCrabCompiler<'a> {
 
     fn eval_add(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_add(b))),
+            (Value::Constant(a), Value::Constant(b)) => {
+                let a = a.get_u8()?;
+                let b = b.get_u8()?;
+                Ok(a.wrapping_add(b).into())
+            }
             (a, Value::Variable(Variable::Owned(b))) => {
                 self.add_assign(b.address, a)?;
                 Ok(Value::owned(b))
@@ -551,7 +543,11 @@ impl<'a> BrainCrabCompiler<'a> {
 
     fn eval_mul(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_mul(b))),
+            (Value::Constant(a), Value::Constant(b)) => {
+                let a = a.get_u8()?;
+                let b = b.get_u8()?;
+                Ok(a.wrapping_mul(b).into())
+            }
             (a, Value::Variable(Variable::Owned(b))) => {
                 self.mul_assign(b.address, a)?;
                 Ok(Value::owned(b))
@@ -567,7 +563,11 @@ impl<'a> BrainCrabCompiler<'a> {
 
     fn eval_sub(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_sub(b))),
+            (Value::Constant(a), Value::Constant(b)) => {
+                let a = a.get_u8()?;
+                let b = b.get_u8()?;
+                Ok(a.wrapping_sub(b).into())
+            }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.sub_assign(temp.address, b)?;
@@ -579,7 +579,11 @@ impl<'a> BrainCrabCompiler<'a> {
 
     fn eval_div(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a.wrapping_div(b))),
+            (Value::Constant(a), Value::Constant(b)) => {
+                let a = a.get_u8()?;
+                let b = b.get_u8()?;
+                Ok(a.wrapping_div(b).into())
+            }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.div_assign(temp.address, b)?;
@@ -591,7 +595,11 @@ impl<'a> BrainCrabCompiler<'a> {
 
     fn eval_mod(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => Ok(Value::Constant(a % b)),
+            (Value::Constant(a), Value::Constant(b)) => {
+                let a = a.get_u8()?;
+                let b = b.get_u8()?;
+                Ok((a % b).into())
+            }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.mod_assign(temp.address, b)?;
@@ -604,10 +612,10 @@ impl<'a> BrainCrabCompiler<'a> {
     fn eval_not(&mut self, inner: Value) -> CompileResult<Value> {
         match inner {
             Value::Constant(value) => {
-                if value > 0 {
-                    Ok(0.into())
+                if value.get_bool()? {
+                    Ok(false.into())
                 } else {
-                    Ok(1.into())
+                    Ok(true.into())
                 }
             }
             Value::Variable(Variable::Owned(owned)) => {
@@ -625,7 +633,9 @@ impl<'a> BrainCrabCompiler<'a> {
     fn eval_and(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
-                Ok(Value::Constant(((a != 0) && (b != 0)) as u8))
+                let a = a.get_bool()?;
+                let b = b.get_bool()?;
+                Ok((a && b).into())
             }
             (Value::Variable(Variable::Owned(a)), b) => {
                 self.and_assign(a.address, b)?;
@@ -647,7 +657,9 @@ impl<'a> BrainCrabCompiler<'a> {
     fn eval_or(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
-                Ok(Value::Constant(((a != 0) || (b != 0)) as u8))
+                let a = a.get_bool()?;
+                let b = b.get_bool()?;
+                Ok((a || b).into())
             }
             (Value::Variable(Variable::Owned(a)), b) => {
                 self.or_assign(a.address, b)?;
@@ -669,7 +681,9 @@ impl<'a> BrainCrabCompiler<'a> {
     fn eval_not_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
-                Ok(Value::Constant(if a != b { 1 } else { 0 }))
+                let a = a.get_u8()?;
+                let b = b.get_u8()?;
+                Ok((a != b).into())
             }
             (Value::Variable(Variable::Owned(a)), b) => {
                 self.sub_assign(a.address, b)?;
@@ -696,7 +710,9 @@ impl<'a> BrainCrabCompiler<'a> {
     fn eval_less_than_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
-                Ok(Value::Constant(if a <= b { 1 } else { 0 }))
+                let a = a.get_u8()?;
+                let b = b.get_u8()?;
+                Ok((a <= b).into())
             }
             (a, b) => {
                 let a_temp = self.new_owned(a)?;
@@ -830,7 +846,7 @@ impl<'a> BrainCrabCompiler<'a> {
     ) -> CompileResult<()> {
         match predicate {
             Expression::Constant(predicate) => {
-                if predicate > 0 {
+                if predicate.get_bool()? {
                     // Infinite loop
                     let temp = self.new_owned(1)?;
                     self.loop_while(temp.address, body)
@@ -843,7 +859,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 let predicate = self.borrow_immutable(variable)?;
                 match predicate {
                     Value::Constant(predicate) => {
-                        if predicate > 0 {
+                        if predicate.get_bool()? {
                             // Infinite loop
                             let temp = self.new_owned(1)?;
                             self.loop_while(temp.address, body)

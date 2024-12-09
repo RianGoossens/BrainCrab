@@ -1,4 +1,7 @@
-use crate::{allocator::BrainCrabAllocator, compiler::AddressPool, types::Type};
+use crate::{
+    allocator::BrainCrabAllocator, compiler::AddressPool, constant_value::ConstantValue,
+    types::Type,
+};
 
 #[derive(PartialEq, Eq)]
 pub struct Owned {
@@ -80,13 +83,13 @@ impl From<Owned> for Variable {
 
 #[derive(PartialEq, Eq)]
 pub enum Value {
-    Constant(u8),
+    Constant(ConstantValue),
     Variable(Variable),
 }
 
 impl Value {
-    pub fn constant(value: u8) -> Self {
-        Self::Constant(value)
+    pub fn constant<A: Into<ConstantValue>>(value: A) -> Self {
+        Self::Constant(value.into())
     }
 
     pub fn new_borrow(address: u16, value_type: Type) -> Self {
@@ -135,8 +138,8 @@ impl From<Owned> for Value {
     }
 }
 
-impl From<u8> for Value {
-    fn from(value: u8) -> Self {
-        Self::Constant(value)
+impl<A: Into<ConstantValue>> From<A> for Value {
+    fn from(value: A) -> Self {
+        Self::Constant(value.into())
     }
 }
