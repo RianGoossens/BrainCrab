@@ -2,7 +2,7 @@ print("Number Tester\n");
 print("=============\n\n");
 
 
-mut i = 0;
+mut i: u8 = 0;
 while i < 255 {
     mut k = i;
 

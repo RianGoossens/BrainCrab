@@ -16,10 +16,10 @@ Here are my upcoming tasks.
   - optimized could do the address optimization and others
 
 ### Braincrab Language TODO
-- Rewrite examples in main to actual examples
 - Types? (u8, bool, structs, arrays...)
   - tuples/arrays
   - structs
 - Macros
 - Make read work as an expression
 - Comments
+- Modules
