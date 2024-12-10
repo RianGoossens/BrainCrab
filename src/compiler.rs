@@ -300,6 +300,9 @@ impl<'a> BrainCrabCompiler<'a> {
                         self.scoped(|compiler| f(compiler))?
                     }
                 }
+                _ => {
+                    panic!("n times with a constant value which is not a bool or u8")
+                }
             },
             Value::Variable(variable) => match variable {
                 Variable::Owned(temp) => {

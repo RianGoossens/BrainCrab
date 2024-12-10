@@ -3,10 +3,11 @@ use crate::{
     types::Type,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstantValue {
     U8(u8),
     Bool(bool),
+    Array(Vec<ConstantValue>),
 }
 
 impl From<u8> for ConstantValue {
@@ -26,6 +27,13 @@ impl ConstantValue {
         match self {
             ConstantValue::U8(_) => Type::U8,
             ConstantValue::Bool(_) => Type::Bool,
+            ConstantValue::Array(vec) => match vec.first() {
+                Some(x) => Type::Array {
+                    element_type: Box::new(x.value_type()),
+                    len: vec.len() as u16,
+                },
+                None => panic!("array of size 0"),
+            },
         }
     }
 

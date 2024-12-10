@@ -17,7 +17,7 @@ impl Owned {
     pub fn borrow(&self) -> Variable {
         Variable::Borrow {
             address: self.address,
-            value_type: self.value_type,
+            value_type: self.value_type.clone(),
             mutable: self.mutable,
         }
     }
@@ -60,7 +60,7 @@ impl Variable {
                 mutable,
             } => Variable::Borrow {
                 address: *address,
-                value_type: *value_type,
+                value_type: value_type.clone(),
                 mutable: *mutable,
             },
         }
@@ -73,8 +73,8 @@ impl Variable {
     }
     pub fn value_type(&self) -> Type {
         match self {
-            Variable::Owned(owned) => owned.value_type,
-            Variable::Borrow { value_type, .. } => *value_type,
+            Variable::Owned(owned) => owned.value_type.clone(),
+            Variable::Borrow { value_type, .. } => value_type.clone(),
         }
     }
 }
@@ -110,7 +110,7 @@ impl Value {
 
     pub fn borrow(&self) -> Self {
         match self {
-            Value::Constant(x) => (*x).into(),
+            Value::Constant(x) => x.clone().into(),
             Value::Variable(variable) => Value::Variable(variable.borrow()),
         }
     }
