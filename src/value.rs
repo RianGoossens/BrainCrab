@@ -1,5 +1,4 @@
 use crate::{
-    allocator::BrainCrabAllocator,
     compiler::AddressPool,
     compiler_error::{CompileResult, CompilerError},
     constant_value::ConstantValue,
@@ -26,7 +25,9 @@ impl Owned {
 
 impl Drop for Owned {
     fn drop(&mut self) {
-        self.address_pool.borrow_mut().deallocate(self.address);
+        self.address_pool
+            .borrow_mut()
+            .deallocate(self.address, self.value_type.size());
     }
 }
 

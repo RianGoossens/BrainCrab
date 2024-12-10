@@ -5,7 +5,7 @@ pub enum Type {
 }
 
 impl Type {
-    pub fn size(&self) -> u8 {
+    pub fn size(&self) -> u16 {
         1
     }
 }

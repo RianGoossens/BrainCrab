@@ -10,7 +10,7 @@ use crate::{
     value::{Owned, Value, Variable},
 };
 
-pub type AddressPool = Rc<RefCell<Vec<u16>>>;
+pub type AddressPool = Rc<RefCell<BrainCrabAllocator>>;
 
 pub struct ScopedVariableMap<'a> {
     pub variable_map_stack: Vec<BTreeMap<&'a str, Value>>,
@@ -75,7 +75,7 @@ impl<'a> Default for BrainCrabCompiler<'a> {
         Self {
             program_stack: vec![ABFProgram::new()],
             variable_map: Default::default(),
-            address_pool: Rc::new(RefCell::new(BrainCrabAllocator::new_allocator())),
+            address_pool: Rc::new(RefCell::new(BrainCrabAllocator::new())),
         }
     }
 }
@@ -104,7 +104,7 @@ impl<'a> BrainCrabCompiler<'a> {
     // Memory management
 
     pub fn allocate(&mut self, value_type: Type) -> CompileResult<Owned> {
-        if let Some(address) = self.address_pool.borrow_mut().allocate(0) {
+        if let Some(address) = self.address_pool.borrow_mut().allocate(value_type.size()) {
             Ok(Owned {
                 address,
                 value_type,
