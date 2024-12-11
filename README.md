@@ -19,6 +19,12 @@ Here are my upcoming tasks.
 - Types? (u8, bool, structs, arrays...)
   - tuples/arrays
   - structs
+- Array functionality:
+  - indexing
+  - looping
+  - init with values
+  - init with strings
+  - init with repeating value
 - Macros
 - Make read work as an expression
 - Comments

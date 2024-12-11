@@ -10,6 +10,7 @@ pub enum CompilerError {
     MutableBorrowOfImmutableVariable(String),
     CantRegisterBorrowedValues(String),
     TypeError { expected: Type, actual: Type },
+    InvalidReinterpretCast { original: Type, new: Type },
 }
 
 pub type CompileResult<A> = Result<A, CompilerError>;

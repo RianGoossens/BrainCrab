@@ -1,0 +1,12 @@
+print("Hello World!\n");
+
+
+mut looping = true;
+while looping {
+    mut x = 0;
+    read(x);
+    write(x);
+    if x == '\n' {
+        looping = false;
+    }
+}

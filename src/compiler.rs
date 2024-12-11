@@ -183,6 +183,18 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
+    pub fn reinterpret_cast(&self, mut owned: Owned, new_type: Type) -> CompileResult<Owned> {
+        if owned.value_type.size() != new_type.size() {
+            Err(CompilerError::InvalidReinterpretCast {
+                original: owned.value_type.clone(),
+                new: new_type,
+            })
+        } else {
+            owned.value_type = new_type;
+            Ok(owned)
+        }
+    }
+
     // Primitives
 
     pub fn add_to(&mut self, address: u16, value: i8) {
@@ -717,19 +729,17 @@ impl<'a> BrainCrabCompiler<'a> {
                 let b = b.get_u8()?;
                 Ok((a != b).into())
             }
-            (Value::Variable(Variable::Owned(a)), b) => {
-                self.sub_assign(a.address, b)?;
-                Ok(Value::owned(a))
-            }
-            (a, Value::Variable(Variable::Owned(b))) => {
+            (a, Value::Variable(Variable::Owned(mut b))) => {
                 self.sub_assign(b.address, a)?;
-                Ok(Value::owned(b))
+                b = self.reinterpret_cast(b, Type::Bool)?;
+                Ok(b.into())
             }
             (a, b) => {
-                let temp = self.new_owned(a)?;
+                let mut temp = self.new_owned(a)?;
                 self.sub_assign(temp.address, b)?;
+                temp = self.reinterpret_cast(temp, Type::Bool)?;
 
-                Ok(Value::owned(temp))
+                Ok(temp.into())
             }
         }
     }
