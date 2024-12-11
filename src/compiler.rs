@@ -661,7 +661,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 Ok(owned.into())
             }
             Value::Variable(Variable::Borrow { address, .. }) => {
-                let result = self.new_owned(0)?;
+                let result = self.new_owned(false)?;
                 self.not_assign(result.address, Value::new_borrow(address, Type::Bool))?;
                 Ok(result.into())
             }
