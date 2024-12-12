@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fmt::Display};
+use std::{collections::BTreeSet, fmt::Display, iter};
 
 use crate::{
     ast::{Expression, Instruction, Program},
@@ -383,6 +383,13 @@ impl BrainCrabParser {
         )
     }
 
+    fn number<'a>(&mut self, string: &'a str) -> ParseResult<'a, u16> {
+        let start_index = self.index;
+        let digits = self.one_or_more(string, Self::digit)?.value;
+        let result = digits.into_iter().fold(0u16, |a, b| a * 10 + b as u16);
+        self.success(string, result, start_index, self.index - start_index)
+    }
+
     fn escaped_char<'a>(&mut self, string: &'a str) -> ParseResult<'a, char> {
         let start_location = self.index;
         self.literal(string, "\\")?;
@@ -498,6 +505,30 @@ impl BrainCrabParser {
         )
     }
 
+    pub fn parse_repeating_array<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
+        let start_index = self.index;
+
+        self.literal(string, "[")?;
+
+        self.optional(string, Self::whitespace)?;
+        let element = self.parse_constant(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ";")?;
+        self.optional(string, Self::whitespace)?;
+        let amount = self.number(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "]")?;
+
+        let expressions = iter::repeat(element).take(amount as usize).collect();
+
+        self.success(
+            string,
+            ConstantValue::Array(expressions),
+            start_index,
+            self.index - start_index,
+        )
+    }
+
     pub fn parse_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
         self.one_of(
             string,
@@ -506,6 +537,7 @@ impl BrainCrabParser {
                 &Self::parse_char_constant,
                 &Self::parse_bool_constant,
                 &Self::parse_array,
+                &Self::parse_repeating_array,
             ],
         )
     }
@@ -638,8 +670,7 @@ impl BrainCrabParser {
         self.optional(string, Self::whitespace)?;
         self.literal(string, ";")?;
         self.optional(string, Self::whitespace)?;
-        let digits = self.one_or_more(string, Self::digit)?.value;
-        let len = digits.into_iter().fold(0u16, |a, b| a * 10 + b as u16);
+        let len = self.number(string)?.value;
         self.optional(string, Self::whitespace)?;
 
         self.literal(string, "]")?;
