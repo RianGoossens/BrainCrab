@@ -23,15 +23,28 @@ impl From<bool> for ConstantValue {
 }
 
 impl ConstantValue {
-    pub fn value_type(&self) -> Type {
+    pub fn value_type(&self) -> CompileResult<Type> {
         match self {
-            ConstantValue::U8(_) => Type::U8,
-            ConstantValue::Bool(_) => Type::Bool,
+            ConstantValue::U8(_) => Ok(Type::U8),
+            ConstantValue::Bool(_) => Ok(Type::Bool),
             ConstantValue::Array(vec) => match vec.first() {
-                Some(x) => Type::Array {
-                    element_type: Box::new(x.value_type()),
-                    len: vec.len() as u16,
-                },
+                Some(x) => {
+                    let expected = x.value_type()?;
+                    for (index, element) in vec.iter().enumerate() {
+                        let actual = element.value_type()?;
+                        if actual != expected {
+                            return Err(CompilerError::ArrayHasDifferentTypes {
+                                expected,
+                                index: index as u16,
+                                actual,
+                            });
+                        }
+                    }
+                    Ok(Type::Array {
+                        element_type: Box::new(x.value_type()?),
+                        len: vec.len() as u16,
+                    })
+                }
                 None => panic!("array of size 0"),
             },
         }
@@ -42,7 +55,7 @@ impl ConstantValue {
             ConstantValue::U8(value) => Ok(*value),
             _ => Err(CompilerError::TypeError {
                 expected: Type::U8,
-                actual: self.value_type(),
+                actual: self.value_type()?,
             }),
         }
     }
@@ -52,7 +65,7 @@ impl ConstantValue {
             ConstantValue::Bool(value) => Ok(*value),
             _ => Err(CompilerError::TypeError {
                 expected: Type::Bool,
-                actual: self.value_type(),
+                actual: self.value_type()?,
             }),
         }
     }

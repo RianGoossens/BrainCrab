@@ -9,8 +9,19 @@ pub enum CompilerError {
     NonAsciiString(String),
     MutableBorrowOfImmutableVariable(String),
     CantRegisterBorrowedValues(String),
-    TypeError { expected: Type, actual: Type },
-    InvalidReinterpretCast { original: Type, new: Type },
+    TypeError {
+        expected: Type,
+        actual: Type,
+    },
+    InvalidReinterpretCast {
+        original: Type,
+        new: Type,
+    },
+    ArrayHasDifferentTypes {
+        expected: Type,
+        index: u16,
+        actual: Type,
+    },
 }
 
 pub type CompileResult<A> = Result<A, CompilerError>;

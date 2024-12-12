@@ -172,9 +172,9 @@ impl<'a> BrainCrabCompiler<'a> {
         match value {
             Value::Variable(Variable::Owned(owned)) => Ok(owned),
             _ => {
-                let owned = self.allocate(value.value_type())?;
+                let owned = self.allocate(value.value_type()?)?;
                 assert!(
-                    value.value_type().size() == 1,
+                    value.value_type()?.size() == 1,
                     "bigger types not yet supported"
                 );
                 self.add_assign(owned.address, value)?;

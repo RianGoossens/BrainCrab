@@ -2,6 +2,7 @@ use std::{collections::BTreeSet, fmt::Display};
 
 use crate::{
     ast::{Expression, Instruction, Program},
+    constant_value::ConstantValue,
     types::Type,
 };
 
@@ -423,7 +424,7 @@ impl BrainCrabParser {
         })
     }
 
-    pub fn parse_u8_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+    pub fn parse_u8_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
         let start_location = self.index;
         let mut number = self.digit(string)?.value;
         let mut len = 1;
@@ -440,7 +441,7 @@ impl BrainCrabParser {
         self.success(string, number.into(), start_location, len)
     }
 
-    pub fn parse_char_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+    pub fn parse_char_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
         let start_location = self.index;
         self.literal(string, "'")?;
         let char = self
@@ -455,7 +456,7 @@ impl BrainCrabParser {
         )
     }
 
-    pub fn parse_bool_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+    pub fn parse_bool_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
         self.one_of(
             string,
             &[
@@ -465,15 +466,56 @@ impl BrainCrabParser {
         )
     }
 
-    pub fn parse_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+    pub fn parse_array<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
+        let start_index = self.index;
+
+        self.literal(string, "[")?;
+
+        let mut expressions = vec![];
+        loop {
+            self.optional(string, Self::whitespace)?;
+            let element = self.parse_constant(string)?.value;
+            expressions.push(element);
+            self.optional(string, Self::whitespace)?;
+
+            if self
+                .optional(string, |p, s| p.literal(s, ","))?
+                .value
+                .is_none()
+            {
+                break;
+            }
+        }
+
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "]")?;
+
+        self.success(
+            string,
+            ConstantValue::Array(expressions),
+            start_index,
+            self.index - start_index,
+        )
+    }
+
+    pub fn parse_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
         self.one_of(
             string,
             &[
                 &Self::parse_u8_constant,
                 &Self::parse_char_constant,
                 &Self::parse_bool_constant,
+                &Self::parse_array,
             ],
         )
+    }
+
+    pub fn parse_constant_expression<'a>(
+        &mut self,
+        string: &'a str,
+    ) -> ParseResult<'a, Expression<'a>> {
+        self.parse_constant(string)
+            .map(|x| x.map(Expression::Constant))
     }
 
     pub fn parse_variable_name<'a>(&mut self, string: &'a str) -> ParseResult<'a, &'a str> {
@@ -512,7 +554,7 @@ impl BrainCrabParser {
         self.one_of(
             string,
             &[
-                &Self::parse_constant,
+                &Self::parse_constant_expression,
                 &Self::parse_variable,
                 &Self::parse_parens,
                 &Self::parse_not_expression,
@@ -586,12 +628,40 @@ impl BrainCrabParser {
         self.parse_binary_expression(string)
     }
 
+    pub fn parse_array_type<'a>(&mut self, string: &'a str) -> ParseResult<'a, Type> {
+        let start_index = self.index;
+
+        self.literal(string, "[")?;
+
+        self.optional(string, Self::whitespace)?;
+        let element_type = self.parse_type(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ";")?;
+        self.optional(string, Self::whitespace)?;
+        let digits = self.one_or_more(string, Self::digit)?.value;
+        let len = digits.into_iter().fold(0u16, |a, b| a * 10 + b as u16);
+        self.optional(string, Self::whitespace)?;
+
+        self.literal(string, "]")?;
+
+        self.success(
+            string,
+            Type::Array {
+                element_type: Box::new(element_type),
+                len,
+            },
+            start_index,
+            self.index - start_index,
+        )
+    }
+
     pub fn parse_type<'a>(&mut self, string: &'a str) -> ParseResult<'a, Type> {
         self.one_of(
             string,
             &[
                 &|p, s| p.literal(s, "u8").map(|x| x.with(Type::U8)),
                 &|p, s| p.literal(s, "bool").map(|x| x.with(Type::Bool)),
+                &Self::parse_array_type,
             ],
         )
     }

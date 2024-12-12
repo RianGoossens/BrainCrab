@@ -122,21 +122,19 @@ impl Value {
         }
     }
 
-    pub fn value_type(&self) -> Type {
+    pub fn value_type(&self) -> CompileResult<Type> {
         match self {
             Value::Constant(value) => value.value_type(),
-            Value::Variable(variable) => variable.value_type(),
+            Value::Variable(variable) => Ok(variable.value_type()),
         }
     }
 
     pub fn type_check(&self, expected: Type) -> CompileResult<()> {
-        if self.value_type() == expected {
+        let actual = self.value_type()?;
+        if actual == expected {
             Ok(())
         } else {
-            Err(CompilerError::TypeError {
-                expected,
-                actual: self.value_type(),
-            })
+            Err(CompilerError::TypeError { expected, actual })
         }
     }
 }
