@@ -398,6 +398,7 @@ impl BrainCrabParser {
             'n' => '\n',
             't' => '\t',
             'r' => '\r',
+            '0' => '\0',
             _ => result,
         };
         self.success(string, result, start_location, self.index - start_location)
