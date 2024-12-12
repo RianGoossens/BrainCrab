@@ -14,6 +14,8 @@ Here are my upcoming tasks.
 - Compiler flags
   - debug could keep comments or even code inside the .bf file
   - optimized could do the address optimization and others
+- Better compiler errors by storing program pointers at parse time
+- Language documentation
 
 ### Braincrab Language TODO
 - Types? (u8, bool, structs, arrays...)
