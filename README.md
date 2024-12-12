@@ -22,9 +22,8 @@ Here are my upcoming tasks.
 - Array functionality:
   - indexing
   - looping
-  - init with values
   - init with strings
-  - init with repeating value
+  - mutable arrays
 - Macros
 - Make read work as an expression
 - Comments
