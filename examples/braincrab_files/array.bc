@@ -4,3 +4,6 @@ let repeating: [[bool;5];50] = [[false;5];50];
 
 let stuff_to_write = [['a', 'b'], ['c', 'd']];
 write(stuff_to_write[1, 0]);
+
+let range: [u8;13] = ['a'..'z'..2];
+write(range[5]);

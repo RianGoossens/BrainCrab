@@ -383,11 +383,21 @@ impl BrainCrabParser {
         )
     }
 
-    fn number<'a>(&mut self, string: &'a str) -> ParseResult<'a, u16> {
+    fn parse_u16<'a>(&mut self, string: &'a str) -> ParseResult<'a, u16> {
         let start_index = self.index;
         let digits = self.one_or_more(string, Self::digit)?.value;
         let result = digits.into_iter().fold(0u16, |a, b| a * 10 + b as u16);
         self.success(string, result, start_index, self.index - start_index)
+    }
+
+    fn parse_u8<'a>(&mut self, string: &'a str) -> ParseResult<'a, u8> {
+        self.filter(
+            string,
+            Self::parse_u16,
+            |x| *x <= 255,
+            ParseErrorMessage::Expected("u8 needs to be in [0,255]"),
+        )
+        .map(|x| x.map(|x| x as u8))
     }
 
     fn escaped_char<'a>(&mut self, string: &'a str) -> ParseResult<'a, char> {
@@ -432,24 +442,7 @@ impl BrainCrabParser {
         })
     }
 
-    pub fn parse_u8_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
-        let start_location = self.index;
-        let mut number = self.digit(string)?.value;
-        let mut len = 1;
-        if let Some(digit) = self.optional(string, Self::digit)?.value {
-            number *= 10;
-            number += digit;
-            len += 1;
-        }
-        if let Some(digit) = self.optional(string, Self::digit)?.value {
-            number *= 10;
-            number += digit;
-            len += 1;
-        }
-        self.success(string, number.into(), start_location, len)
-    }
-
-    pub fn parse_char_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
+    pub fn parse_char_literal<'a>(&mut self, string: &'a str) -> ParseResult<'a, u8> {
         let start_location = self.index;
         self.literal(string, "'")?;
         let char = self
@@ -458,10 +451,23 @@ impl BrainCrabParser {
         self.literal(string, "'")?;
         self.success(
             string,
-            (char as u8).into(),
+            char as u8,
             start_location,
             self.index - start_location,
         )
+    }
+
+    pub fn parse_u8_literal<'a>(&mut self, string: &'a str) -> ParseResult<'a, u8> {
+        let start_location = self.index;
+        let number = self
+            .one_of(string, &[&Self::parse_u8, &Self::parse_char_literal])?
+            .value;
+        self.success(string, number, start_location, self.index - start_location)
+    }
+
+    pub fn parse_u8_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
+        self.parse_u8_literal(string)
+            .map(|x| x.map(ConstantValue::U8))
     }
 
     pub fn parse_bool_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
@@ -516,7 +522,7 @@ impl BrainCrabParser {
         self.optional(string, Self::whitespace)?;
         self.literal(string, ";")?;
         self.optional(string, Self::whitespace)?;
-        let amount = self.number(string)?.value;
+        let amount = self.parse_u16(string)?.value;
         self.optional(string, Self::whitespace)?;
         self.literal(string, "]")?;
 
@@ -530,15 +536,55 @@ impl BrainCrabParser {
         )
     }
 
+    pub fn parse_range_array<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
+        let start_index = self.index;
+
+        self.literal(string, "[")?;
+
+        self.optional(string, Self::whitespace)?;
+        let start = self.parse_u8_literal(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "..")?;
+        self.optional(string, Self::whitespace)?;
+        let end = self.parse_u8_literal(string)?.value;
+        self.optional(string, Self::whitespace)?;
+
+        let step = self
+            .optional(string, |p, s| {
+                let start_index = p.index;
+                p.literal(s, "..")?;
+                p.optional(s, Self::whitespace)?;
+                let step = p.parse_u8(s)?.value;
+                p.optional(s, Self::whitespace)?;
+                p.success(s, step, start_index, p.index - start_index)
+            })?
+            .value
+            .unwrap_or(1);
+
+        self.literal(string, "]")?;
+
+        let array = (start..end)
+            .step_by(step as usize)
+            .map(ConstantValue::U8)
+            .collect();
+
+        self.success(
+            string,
+            ConstantValue::Array(array),
+            start_index,
+            self.index - start_index,
+        )
+    }
+
     pub fn parse_constant<'a>(&mut self, string: &'a str) -> ParseResult<'a, ConstantValue> {
         self.one_of(
             string,
             &[
                 &Self::parse_u8_constant,
-                &Self::parse_char_constant,
                 &Self::parse_bool_constant,
                 &Self::parse_array,
                 &Self::parse_repeating_array,
+                &Self::parse_range_array,
             ],
         )
     }
@@ -578,7 +624,7 @@ impl BrainCrabParser {
         let mut indices = vec![];
         loop {
             self.optional(string, Self::whitespace)?;
-            let index = self.number(string)?.value;
+            let index = self.parse_u16(string)?.value;
             indices.push(index);
             self.optional(string, Self::whitespace)?;
 
@@ -698,7 +744,7 @@ impl BrainCrabParser {
         self.optional(string, Self::whitespace)?;
         self.literal(string, ";")?;
         self.optional(string, Self::whitespace)?;
-        let len = self.number(string)?.value;
+        let len = self.parse_u16(string)?.value;
         self.optional(string, Self::whitespace)?;
 
         self.literal(string, "]")?;
