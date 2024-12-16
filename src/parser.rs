@@ -570,6 +570,32 @@ impl BrainCrabParser {
         Ok(result.map(|x| x.into()))
     }
 
+    pub fn parse_indexing<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+        let start_index = self.index;
+        let array_name = self.parse_variable_name(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "[")?;
+        let mut indices = vec![];
+        loop {
+            self.optional(string, Self::whitespace)?;
+            let index = self.number(string)?.value;
+            indices.push(index);
+            self.optional(string, Self::whitespace)?;
+
+            if self
+                .optional(string, |p, s| p.literal(s, ","))?
+                .value
+                .is_none()
+            {
+                break;
+            }
+        }
+        self.literal(string, "]")?;
+        let result = Expression::Index(array_name, indices);
+
+        self.success(string, result, start_index, self.index - start_index)
+    }
+
     pub fn parse_parens<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
         let start_index = self.index;
         self.literal(string, "(")?;
@@ -588,6 +614,7 @@ impl BrainCrabParser {
             string,
             &[
                 &Self::parse_constant_expression,
+                &Self::parse_indexing,
                 &Self::parse_variable,
                 &Self::parse_parens,
                 &Self::parse_not_expression,

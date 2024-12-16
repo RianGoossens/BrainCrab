@@ -1,3 +1,6 @@
 let array = [1, 'a', 3];
 let multidimensional: [[u8;2]; 3] = [[1, 2], [3, 4], [5, 6]];
 let repeating: [[bool;5];50] = [[false;5];50];
+
+let stuff_to_write = [['a', 'b'], ['c', 'd']];
+write(stuff_to_write[1, 0]);

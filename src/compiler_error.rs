@@ -22,6 +22,7 @@ pub enum CompilerError {
         index: u16,
         actual: Type,
     },
+    NotAnArray,
 }
 
 pub type CompileResult<A> = Result<A, CompilerError>;

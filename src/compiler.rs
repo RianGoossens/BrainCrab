@@ -805,6 +805,20 @@ impl<'a> BrainCrabCompiler<'a> {
         self.eval_not(opposite)
     }
 
+    fn eval_index(array: Value, indices: &[u16]) -> CompileResult<Value> {
+        match indices {
+            [head, tail @ ..] => {
+                if let Value::Constant(ConstantValue::Array(array)) = array {
+                    // TODO: this clone operation can be quite expensive
+                    Self::eval_index(array[*head as usize].clone().into(), tail)
+                } else {
+                    Err(CompilerError::NotAnArray)
+                }
+            }
+            _ => Ok(array),
+        }
+    }
+
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
             Expression::Constant(value) => Ok(Value::constant(value)),
@@ -877,6 +891,10 @@ impl<'a> BrainCrabCompiler<'a> {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
                 self.eval_greater_than(a, b)
+            }
+            Expression::Index(name, indices) => {
+                let array = self.borrow_immutable(name)?;
+                Self::eval_index(array, &indices)
             }
         }
     }

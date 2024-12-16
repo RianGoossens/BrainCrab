@@ -22,10 +22,11 @@ Here are my upcoming tasks.
   - tuples/arrays
   - structs
 - Array functionality:
-  - indexing
+  - init as range
   - looping
   - init with strings
   - mutable arrays
+  - dynamic indices
 - Macros
 - Make read work as an expression
 - Comments
