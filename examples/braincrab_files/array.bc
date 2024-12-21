@@ -13,3 +13,18 @@ let k = 255;
 for x in range {
     write(x);
 }
+write('\n');
+
+let interesting: [[u8;5];4] = [
+    ['a'..'f'],
+    ['a'..'o'..3],
+    ['h','e','l','l','o'],
+    ['x';5]
+];
+
+for row in interesting {
+    for character in row {
+        write(character);
+    }
+    write('\n');
+}

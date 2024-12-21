@@ -22,7 +22,6 @@ Here are my upcoming tasks.
   - tuples/arrays
   - structs
 - Array functionality:
-  - looping
   - init with strings
   - mutable arrays
   - dynamic indices
