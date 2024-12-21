@@ -988,6 +988,29 @@ impl BrainCrabParser {
         self.success(string, result, start_index, self.index - start_index)
     }
 
+    pub fn parse_for_each<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
+        let start_index = self.index;
+        self.literal(string, "for")?;
+        self.whitespace(string)?;
+        let loop_variable = self.parse_variable_name(string)?.value;
+        self.whitespace(string)?;
+        self.literal(string, "in")?;
+        self.whitespace(string)?;
+        let array = self.parse_expression(string)?.value;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "{")?;
+        let body = self.parse_instructions(string)?.value;
+        self.literal(string, "}")?;
+
+        let result = Instruction::ForEach {
+            loop_variable,
+            array,
+            body,
+        };
+
+        self.success(string, result, start_index, self.index - start_index)
+    }
+
     pub fn parse_instruction<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
         self.one_of(
             string,
@@ -1002,6 +1025,7 @@ impl BrainCrabParser {
                 &Self::parse_scope,
                 &Self::parse_while,
                 &Self::parse_if_else,
+                &Self::parse_for_each,
             ],
         )
     }

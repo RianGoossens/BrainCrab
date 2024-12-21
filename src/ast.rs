@@ -87,7 +87,7 @@ impl<'a> From<&'a str> for Expression<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Instruction<'a> {
     Define {
         name: &'a str,
@@ -127,6 +127,11 @@ pub enum Instruction<'a> {
         predicate: Expression<'a>,
         if_body: Vec<Instruction<'a>>,
         else_body: Vec<Instruction<'a>>,
+    },
+    ForEach {
+        loop_variable: &'a str,
+        array: Expression<'a>,
+        body: Vec<Instruction<'a>>,
     },
 }
 

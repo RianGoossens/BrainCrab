@@ -7,3 +7,9 @@ write(stuff_to_write[1, 0]);
 
 let range: [u8;13] = ['a'..'z'..2];
 write(range[5]);
+
+let k = 255;
+
+for x in range {
+    write(x);
+}

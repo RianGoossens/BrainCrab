@@ -943,11 +943,34 @@ impl<'a> BrainCrabCompiler<'a> {
             }
         }
     }
+
+    fn for_each(
+        &mut self,
+        loop_variable: &'a str,
+        array_expression: Expression<'a>,
+        body: Vec<Instruction<'a>>,
+    ) -> CompileResult<()> {
+        let array = self.eval_expression(array_expression)?;
+
+        if let Type::Array { len, .. } = array.value_type()? {
+            for i in 0..len {
+                self.scoped(|compiler| {
+                    let element = Self::eval_index(array.borrow(), &[i])?;
+                    compiler.register_variable(loop_variable, element)?;
+                    compiler.compile_instructions(body.clone())
+                })?;
+            }
+            Ok(())
+        } else {
+            Err(CompilerError::NotAnArray)
+        }
+    }
 }
 
 /// Instruction compiling
 impl<'a> BrainCrabCompiler<'a> {
     fn compile_instructions(&mut self, instructions: Vec<Instruction<'a>>) -> CompileResult<()> {
+        // TODO, make this work with a slice of instructions
         for instruction in instructions {
             match instruction {
                 Instruction::Define {
@@ -988,13 +1011,13 @@ impl<'a> BrainCrabCompiler<'a> {
                 Instruction::Print { string } => {
                     self.print_string(&string)?;
                 }
+                Instruction::Scope { body } => {
+                    self.scoped(|compiler| compiler.compile_instructions(body))?;
+                }
                 Instruction::While { predicate, body } => {
                     self.loop_while_expression(predicate, |compiler| {
                         compiler.compile_instructions(body)
                     })?;
-                }
-                Instruction::Scope { body } => {
-                    self.scoped(|compiler| compiler.compile_instructions(body))?;
                 }
                 Instruction::IfThenElse {
                     predicate,
@@ -1013,6 +1036,11 @@ impl<'a> BrainCrabCompiler<'a> {
                         )?;
                     }
                 }
+                Instruction::ForEach {
+                    loop_variable,
+                    array,
+                    body,
+                } => self.for_each(loop_variable, array, body)?,
             }
         }
         Ok(())

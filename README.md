@@ -30,3 +30,6 @@ Here are my upcoming tasks.
 - Make read work as an expression
 - Comments
 - Modules
+
+## Bugs
+- Filter parser should somehow prioritize it's errors from the inner parser
