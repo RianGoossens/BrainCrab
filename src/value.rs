@@ -59,7 +59,7 @@ impl Value {
     pub fn borrow(&self) -> Self {
         match self {
             Value::Constant(x) => x.clone().into(),
-            Value::LValue(lvalue) => Value::LValue(lvalue.borrow()),
+            Value::LValue(lvalue) => lvalue.borrow().into(),
         }
     }
 
