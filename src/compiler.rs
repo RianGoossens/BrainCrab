@@ -375,7 +375,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 assert!(!variable.is_owned(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
                 let temp = self.new_owned(0)?;
                 self.copy_on_top_of_cells(value, &[temp.address])?;
-                self.copy_on_top_of_cells(Value::lvalue(temp), &[value_address])?;
+                self.copy_on_top_of_cells(temp.into(), &[value_address])?;
                 return Ok(());
             }
         }
@@ -537,11 +537,11 @@ impl<'a> BrainCrabCompiler<'a> {
             for char in string.chars() {
                 let new_value = char as u8;
                 let offset = new_value.wrapping_sub(current_value);
-                self.add_assign(temp.address, Value::constant(offset))?;
+                self.add_assign(temp.address, offset.into())?;
                 self.write(temp.address);
                 current_value = new_value;
             }
-            self.sub_assign(temp.address, Value::constant(current_value))?;
+            self.sub_assign(temp.address, current_value.into())?;
 
             Ok(())
         } else {
@@ -562,13 +562,13 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             (a, Value::LValue(b)) if b.is_owned() => {
                 self.add_assign(b.address, a)?;
-                Ok(Value::lvalue(b))
+                Ok(b.into())
             }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.add_assign(temp.address, b)?;
 
-                Ok(Value::lvalue(temp))
+                Ok(temp.into())
             }
         }
     }
@@ -584,13 +584,13 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             (a, Value::LValue(b)) if b.is_owned() => {
                 self.mul_assign(b.address, a)?;
-                Ok(Value::lvalue(b))
+                Ok(b.into())
             }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.mul_assign(temp.address, b)?;
 
-                Ok(Value::lvalue(temp))
+                Ok(temp.into())
             }
         }
     }
@@ -608,7 +608,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 let temp = self.new_owned(a)?;
                 self.sub_assign(temp.address, b)?;
 
-                Ok(Value::lvalue(temp))
+                Ok(temp.into())
             }
         }
     }
@@ -686,17 +686,17 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             (Value::LValue(a), b) if a.is_owned() => {
                 self.and_assign(a.address, b)?;
-                Ok(Value::lvalue(a))
+                Ok(a.into())
             }
             (a, Value::LValue(b)) if b.is_owned() => {
                 self.and_assign(b.address, a)?;
-                Ok(Value::lvalue(b))
+                Ok(b.into())
             }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.and_assign(temp.address, b)?;
 
-                Ok(Value::lvalue(temp))
+                Ok(temp.into())
             }
         }
     }
@@ -712,17 +712,17 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             (Value::LValue(a), b) if a.is_owned() => {
                 self.or_assign(a.address, b)?;
-                Ok(Value::lvalue(a))
+                Ok(a.into())
             }
             (a, Value::LValue(b)) if b.is_owned() => {
                 self.or_assign(b.address, a)?;
-                Ok(Value::lvalue(b))
+                Ok(b.into())
             }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.or_assign(temp.address, b)?;
 
-                Ok(Value::lvalue(temp))
+                Ok(temp.into())
             }
         }
     }
@@ -828,7 +828,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
-            Expression::Constant(value) => Ok(Value::constant(value)),
+            Expression::Constant(value) => Ok(value.into()),
             Expression::Variable(name) => self.borrow_immutable(name),
             Expression::Add(a, b) => {
                 let a = self.eval_expression(*a)?;

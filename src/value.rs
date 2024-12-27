@@ -38,9 +38,6 @@ impl LValue {
             address_pool: None,
         }
     }
-    pub fn value_type(&self) -> Type {
-        self.value_type.clone()
-    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -50,10 +47,6 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn constant<A: Into<ConstantValue>>(value: A) -> Self {
-        Self::Constant(value.into())
-    }
-
     pub fn new_borrow(address: u16, value_type: Type) -> Self {
         Self::LValue(LValue {
             address,
@@ -61,10 +54,6 @@ impl Value {
             mutable: false,
             address_pool: None,
         })
-    }
-
-    pub fn lvalue(lvalue: LValue) -> Self {
-        Self::LValue(lvalue)
     }
 
     pub fn borrow(&self) -> Self {
@@ -84,7 +73,7 @@ impl Value {
     pub fn value_type(&self) -> CompileResult<Type> {
         match self {
             Value::Constant(value) => value.value_type(),
-            Value::LValue(variable) => Ok(variable.value_type()),
+            Value::LValue(variable) => Ok(variable.value_type.clone()),
         }
     }
 
