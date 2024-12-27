@@ -30,9 +30,6 @@ impl LValue {
     pub fn is_borrowed(&self) -> bool {
         !self.is_owned()
     }
-    pub fn address(&self) -> u16 {
-        self.address
-    }
     pub fn borrow(&self) -> Self {
         Self {
             address: self.address,
@@ -40,9 +37,6 @@ impl LValue {
             mutable: self.mutable,
             address_pool: None,
         }
-    }
-    pub fn is_mutable(&self) -> bool {
-        self.mutable
     }
     pub fn value_type(&self) -> Type {
         self.value_type.clone()
@@ -83,7 +77,7 @@ impl Value {
     pub fn is_mutable(&self) -> bool {
         match self {
             Value::Constant(_) => false,
-            Value::LValue(variable) => variable.is_mutable(),
+            Value::LValue(variable) => variable.mutable,
         }
     }
 

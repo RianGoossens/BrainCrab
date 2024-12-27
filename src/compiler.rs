@@ -166,7 +166,7 @@ impl<'a> BrainCrabCompiler<'a> {
         let result = self.borrow_immutable(name)?;
 
         match result {
-            Value::LValue(variable) if variable.is_mutable() => Ok(variable),
+            Value::LValue(lvalue) if lvalue.mutable => Ok(lvalue),
             _ => Err(CompilerError::MutableBorrowOfImmutableVariable(name.into())),
         }
     }
@@ -328,7 +328,7 @@ impl<'a> BrainCrabCompiler<'a> {
                         Ok(())
                     })?;
                 } else {
-                    let address = lvalue.address();
+                    let address = lvalue.address;
                     let temp = self.new_owned(0)?;
                     self.loop_while(address, |compiler| {
                         compiler.add_to(address, -1);
@@ -370,7 +370,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn add_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         if let Value::LValue(variable) = &value {
-            let value_address = variable.address();
+            let value_address = variable.address;
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
                 let temp = self.new_owned(0)?;
@@ -384,7 +384,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn sub_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         if let Value::LValue(variable) = &value {
-            let value_address = variable.address();
+            let value_address = variable.address;
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to sub a temp from itself, which is not allowed as it's already consumed");
                 self.zero(destination);
@@ -408,7 +408,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn div_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         if let Value::LValue(variable) = &value {
-            let value_address = variable.address();
+            let value_address = variable.address;
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to div a temp from itself, which is not allowed as it's already consumed");
                 self.zero(destination);
@@ -438,7 +438,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn mod_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         if let Value::LValue(variable) = &value {
-            let value_address = variable.address();
+            let value_address = variable.address;
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to mod a temp from itself, which is not allowed as it's already consumed");
                 self.zero(destination);
@@ -491,7 +491,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
         if let Value::LValue(variable) = &value {
-            let value_address = variable.address();
+            let value_address = variable.address;
             if value_address == destination {
                 // assigning to self is a no-op
                 return Ok(());
@@ -507,8 +507,8 @@ impl<'a> BrainCrabCompiler<'a> {
         source: LValue,
         destinations: &[u16],
     ) -> CompileResult<()> {
-        self.loop_while(source.address(), |compiler| {
-            compiler.add_to(source.address(), -1);
+        self.loop_while(source.address, |compiler| {
+            compiler.add_to(source.address, -1);
             for destination in destinations {
                 compiler.add_to(*destination, 1);
             }
@@ -935,7 +935,7 @@ impl<'a> BrainCrabCompiler<'a> {
                             Ok(())
                         }
                     }
-                    Value::LValue(predicate) => self.loop_while(predicate.address(), body),
+                    Value::LValue(predicate) => self.loop_while(predicate.address, body),
                 }
             }
             _ => {
@@ -995,17 +995,17 @@ impl<'a> BrainCrabCompiler<'a> {
                 Instruction::Assign { name, value } => {
                     let destination = self.borrow_mutable(name)?;
                     let value = self.eval_expression(value)?;
-                    self.assign(destination.address(), value)?;
+                    self.assign(destination.address, value)?;
                 }
                 Instruction::AddAssign { name, value } => {
                     let destination = self.borrow_mutable(name)?;
                     let value = self.eval_expression(value)?;
-                    self.add_assign(destination.address(), value)?;
+                    self.add_assign(destination.address, value)?;
                 }
                 Instruction::SubAssign { name, value } => {
                     let destination = self.borrow_mutable(name)?;
                     let value = self.eval_expression(value)?;
-                    self.sub_assign(destination.address(), value)?;
+                    self.sub_assign(destination.address, value)?;
                 }
                 Instruction::Write { expression } => {
                     let value = self.eval_expression(expression)?;
@@ -1013,7 +1013,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 }
                 Instruction::Read { name } => {
                     let destination = self.borrow_mutable(name)?;
-                    self.read(destination.address());
+                    self.read(destination.address);
                 }
                 Instruction::Print { string } => {
                     self.print_string(&string)?;
