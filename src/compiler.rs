@@ -805,7 +805,7 @@ impl<'a> BrainCrabCompiler<'a> {
         self.eval_not(opposite)
     }
 
-    fn eval_index(array: Value, indices: &[u16]) -> CompileResult<Value> {
+    fn eval_index(array: Value, indices: &[u8]) -> CompileResult<Value> {
         match indices {
             [head, tail @ ..] => {
                 if let Value::Constant(ConstantValue::Array(array)) = array {

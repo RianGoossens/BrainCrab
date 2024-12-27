@@ -624,7 +624,7 @@ impl BrainCrabParser {
         let mut indices = vec![];
         loop {
             self.optional(string, Self::whitespace)?;
-            let index = self.parse_u16(string)?.value;
+            let index = self.parse_u8(string)?.value;
             indices.push(index);
             self.optional(string, Self::whitespace)?;
 
@@ -744,7 +744,7 @@ impl BrainCrabParser {
         self.optional(string, Self::whitespace)?;
         self.literal(string, ";")?;
         self.optional(string, Self::whitespace)?;
-        let len = self.parse_u16(string)?.value;
+        let len = self.parse_u8(string)?.value;
         self.optional(string, Self::whitespace)?;
 
         self.literal(string, "]")?;

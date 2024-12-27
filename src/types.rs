@@ -2,7 +2,7 @@
 pub enum Type {
     U8,
     Bool,
-    Array { element_type: Box<Type>, len: u16 },
+    Array { element_type: Box<Type>, len: u8 },
 }
 
 impl Type {
@@ -10,7 +10,7 @@ impl Type {
         match self {
             Type::U8 => 1,
             Type::Bool => 1,
-            Type::Array { element_type, len } => element_type.size() * len,
+            Type::Array { element_type, len } => element_type.size() * *len as u16,
         }
     }
 }

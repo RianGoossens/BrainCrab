@@ -42,7 +42,7 @@ impl ConstantValue {
                     }
                     Ok(Type::Array {
                         element_type: Box::new(x.value_type()?),
-                        len: vec.len() as u16,
+                        len: vec.len() as u8,
                     })
                 }
                 None => panic!("array of size 0"),
