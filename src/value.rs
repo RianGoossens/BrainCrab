@@ -6,89 +6,53 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Owned {
+pub struct LValue {
     pub address: u16,
     pub value_type: Type,
     pub mutable: bool,
-    pub address_pool: AddressPool,
+    pub address_pool: Option<AddressPool>,
 }
 
-impl Owned {
-    pub fn borrow(&self) -> Variable {
-        Variable::Borrow {
+impl Drop for LValue {
+    fn drop(&mut self) {
+        if let Some(address_pool) = &self.address_pool {
+            address_pool
+                .borrow_mut()
+                .deallocate(self.address, self.value_type.size());
+        }
+    }
+}
+
+impl LValue {
+    pub fn is_owned(&self) -> bool {
+        self.address_pool.is_some()
+    }
+    pub fn is_borrowed(&self) -> bool {
+        !self.is_owned()
+    }
+    pub fn address(&self) -> u16 {
+        self.address
+    }
+    pub fn borrow(&self) -> Self {
+        Self {
             address: self.address,
             value_type: self.value_type.clone(),
             mutable: self.mutable,
-        }
-    }
-}
-
-impl Drop for Owned {
-    fn drop(&mut self) {
-        self.address_pool
-            .borrow_mut()
-            .deallocate(self.address, self.value_type.size());
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Variable {
-    Owned(Owned),
-    Borrow {
-        address: u16,
-        value_type: Type,
-        mutable: bool,
-    },
-}
-
-impl Variable {
-    pub fn is_owned(&self) -> bool {
-        matches!(self, Variable::Owned(_))
-    }
-    pub fn address(&self) -> u16 {
-        match self {
-            Variable::Owned(owned) => owned.address,
-            Variable::Borrow { address, .. } => *address,
-        }
-    }
-    pub fn borrow(&self) -> Self {
-        match self {
-            Variable::Owned(owned) => owned.borrow(),
-            Variable::Borrow {
-                address,
-                value_type,
-                mutable,
-            } => Variable::Borrow {
-                address: *address,
-                value_type: value_type.clone(),
-                mutable: *mutable,
-            },
+            address_pool: None,
         }
     }
     pub fn is_mutable(&self) -> bool {
-        match self {
-            Variable::Owned(owned) => owned.mutable,
-            Variable::Borrow { mutable, .. } => *mutable,
-        }
+        self.mutable
     }
     pub fn value_type(&self) -> Type {
-        match self {
-            Variable::Owned(owned) => owned.value_type.clone(),
-            Variable::Borrow { value_type, .. } => value_type.clone(),
-        }
-    }
-}
-
-impl From<Owned> for Variable {
-    fn from(value: Owned) -> Self {
-        Variable::Owned(value)
+        self.value_type.clone()
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Value {
     Constant(ConstantValue),
-    Variable(Variable),
+    LValue(LValue),
 }
 
 impl Value {
@@ -97,35 +61,36 @@ impl Value {
     }
 
     pub fn new_borrow(address: u16, value_type: Type) -> Self {
-        Self::Variable(Variable::Borrow {
+        Self::LValue(LValue {
             address,
             value_type,
             mutable: false,
+            address_pool: None,
         })
     }
 
-    pub fn owned(owned: Owned) -> Self {
-        Self::Variable(Variable::Owned(owned))
+    pub fn lvalue(lvalue: LValue) -> Self {
+        Self::LValue(lvalue)
     }
 
     pub fn borrow(&self) -> Self {
         match self {
             Value::Constant(x) => x.clone().into(),
-            Value::Variable(variable) => Value::Variable(variable.borrow()),
+            Value::LValue(lvalue) => Value::LValue(lvalue.borrow()),
         }
     }
 
     pub fn is_mutable(&self) -> bool {
         match self {
             Value::Constant(_) => false,
-            Value::Variable(variable) => variable.is_mutable(),
+            Value::LValue(variable) => variable.is_mutable(),
         }
     }
 
     pub fn value_type(&self) -> CompileResult<Type> {
         match self {
             Value::Constant(value) => value.value_type(),
-            Value::Variable(variable) => Ok(variable.value_type()),
+            Value::LValue(variable) => Ok(variable.value_type()),
         }
     }
 
@@ -139,15 +104,9 @@ impl Value {
     }
 }
 
-impl From<Variable> for Value {
-    fn from(variable: Variable) -> Self {
-        Self::Variable(variable)
-    }
-}
-
-impl From<Owned> for Value {
-    fn from(owned: Owned) -> Self {
-        Self::Variable(owned.into())
+impl From<LValue> for Value {
+    fn from(lvalue: LValue) -> Self {
+        Self::LValue(lvalue)
     }
 }
 

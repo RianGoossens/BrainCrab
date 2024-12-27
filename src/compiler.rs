@@ -7,7 +7,7 @@ use crate::{
     compiler_error::{CompileResult, CompilerError},
     constant_value::ConstantValue,
     types::Type,
-    value::{Owned, Value, Variable},
+    value::{LValue, Value},
 };
 
 pub type AddressPool = Rc<RefCell<BrainCrabAllocator>>;
@@ -49,13 +49,17 @@ impl<'a> ScopedVariableMap<'a> {
         self.variable_map_stack.push(BTreeMap::new());
     }
 
-    pub fn end_scope(&mut self) -> Vec<Owned> {
+    pub fn end_scope(&mut self) -> Vec<LValue> {
         let last_variable_map = self.variable_map_stack.pop().unwrap();
         last_variable_map
             .into_values()
             .filter_map(|x| {
-                if let Value::Variable(Variable::Owned(owned)) = x {
-                    Some(owned)
+                if let Value::LValue(lvalue) = x {
+                    if lvalue.is_owned() {
+                        Some(lvalue)
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
@@ -103,12 +107,12 @@ impl<'a> BrainCrabCompiler<'a> {
 
     // Memory management
 
-    pub fn allocate(&mut self, value_type: Type) -> CompileResult<Owned> {
+    pub fn allocate(&mut self, value_type: Type) -> CompileResult<LValue> {
         if let Some(address) = self.address_pool.borrow_mut().allocate(value_type.size()) {
-            Ok(Owned {
+            Ok(LValue {
                 address,
                 value_type,
-                address_pool: self.address_pool.clone(),
+                address_pool: Some(self.address_pool.clone()),
                 mutable: true,
             })
         } else {
@@ -121,7 +125,7 @@ impl<'a> BrainCrabCompiler<'a> {
             Err(CompilerError::AlreadyDefinedVariable(name.into()))
         } else {
             match &value {
-                Value::Variable(Variable::Borrow { .. }) => {
+                Value::LValue(lvalue) if lvalue.is_borrowed() => {
                     Err(CompilerError::CantRegisterBorrowedValues(name.into()))
                 }
                 _ => {
@@ -139,7 +143,7 @@ impl<'a> BrainCrabCompiler<'a> {
         value: Value,
         mutable: bool,
     ) -> CompileResult<Value> {
-        if mutable || matches!(value, Value::Variable(_)) {
+        if mutable || matches!(value, Value::LValue(_)) {
             let mut owned = self.new_owned(value)?;
             owned.mutable = mutable;
             let borrow = owned.borrow();
@@ -158,19 +162,19 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn borrow_mutable(&self, name: &'a str) -> CompileResult<Variable> {
+    pub fn borrow_mutable(&self, name: &'a str) -> CompileResult<LValue> {
         let result = self.borrow_immutable(name)?;
 
         match result {
-            Value::Variable(variable) if variable.is_mutable() => Ok(variable),
+            Value::LValue(variable) if variable.is_mutable() => Ok(variable),
             _ => Err(CompilerError::MutableBorrowOfImmutableVariable(name.into())),
         }
     }
 
-    pub fn new_owned<V: Into<Value>>(&mut self, value: V) -> CompileResult<Owned> {
+    pub fn new_owned<V: Into<Value>>(&mut self, value: V) -> CompileResult<LValue> {
         let value: Value = value.into();
         match value {
-            Value::Variable(Variable::Owned(owned)) => Ok(owned),
+            Value::LValue(lvalue) if lvalue.is_owned() => Ok(lvalue),
             _ => {
                 let owned = self.allocate(value.value_type()?)?;
                 assert!(
@@ -183,15 +187,15 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn reinterpret_cast(&self, mut owned: Owned, new_type: Type) -> CompileResult<Owned> {
-        if owned.value_type.size() != new_type.size() {
+    pub fn reinterpret_cast(&self, mut value: LValue, new_type: Type) -> CompileResult<LValue> {
+        if value.value_type.size() != new_type.size() {
             Err(CompilerError::InvalidReinterpretCast {
-                original: owned.value_type.clone(),
+                original: value.value_type.clone(),
                 new: new_type,
             })
         } else {
-            owned.value_type = new_type;
-            Ok(owned)
+            value.value_type = new_type;
+            Ok(value)
         }
     }
 
@@ -249,7 +253,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     Ok(())
                 }
             }
-            Value::Variable(variable) => {
+            Value::LValue(variable) => {
                 let if_check = self.new_owned(variable)?;
                 self.loop_while(if_check.address, |compiler| {
                     body(compiler)?;
@@ -277,7 +281,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     else_case(self)
                 }
             }
-            Value::Variable(variable) => {
+            Value::LValue(variable) => {
                 let else_check = self.new_owned(1)?;
                 let if_check = self.new_owned(variable)?;
                 self.loop_while(if_check.address, |compiler| {
@@ -316,16 +320,15 @@ impl<'a> BrainCrabCompiler<'a> {
                     panic!("n times with a constant value which is not a bool or u8")
                 }
             },
-            Value::Variable(variable) => match variable {
-                Variable::Owned(temp) => {
-                    self.loop_while(temp.address, |compiler| {
-                        compiler.add_to(temp.address, -1);
+            Value::LValue(lvalue) => {
+                if lvalue.is_owned() {
+                    self.loop_while(lvalue.address, |compiler| {
+                        compiler.add_to(lvalue.address, -1);
                         f(compiler)?;
                         Ok(())
                     })?;
-                }
-                _ => {
-                    let address = variable.address();
+                } else {
+                    let address = lvalue.address();
                     let temp = self.new_owned(0)?;
                     self.loop_while(address, |compiler| {
                         compiler.add_to(address, -1);
@@ -339,15 +342,15 @@ impl<'a> BrainCrabCompiler<'a> {
                         Ok(())
                     })?;
                 }
-            },
+            }
         }
         Ok(())
     }
 
     pub fn write_value(&mut self, value: Value) -> CompileResult<()> {
         match &value {
-            Value::Variable(Variable::Borrow { address, .. }) => {
-                self.write(*address);
+            Value::LValue(lvalue) if lvalue.is_borrowed() => {
+                self.write(lvalue.address);
                 Ok(())
             }
             _ => {
@@ -366,13 +369,13 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn add_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
-        if let Value::Variable(variable) = &value {
+        if let Value::LValue(variable) = &value {
             let value_address = variable.address();
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
                 let temp = self.new_owned(0)?;
                 self.copy_on_top_of_cells(value, &[temp.address])?;
-                self.copy_on_top_of_cells(Value::owned(temp), &[value_address])?;
+                self.copy_on_top_of_cells(Value::lvalue(temp), &[value_address])?;
                 return Ok(());
             }
         }
@@ -380,7 +383,7 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn sub_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
-        if let Value::Variable(variable) = &value {
+        if let Value::LValue(variable) = &value {
             let value_address = variable.address();
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to sub a temp from itself, which is not allowed as it's already consumed");
@@ -404,7 +407,7 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn div_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
-        if let Value::Variable(variable) = &value {
+        if let Value::LValue(variable) = &value {
             let value_address = variable.address();
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to div a temp from itself, which is not allowed as it's already consumed");
@@ -434,7 +437,7 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn mod_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
-        if let Value::Variable(variable) = &value {
+        if let Value::LValue(variable) = &value {
             let value_address = variable.address();
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to mod a temp from itself, which is not allowed as it's already consumed");
@@ -487,7 +490,7 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
-        if let Value::Variable(variable) = &value {
+        if let Value::LValue(variable) = &value {
             let value_address = variable.address();
             if value_address == destination {
                 // assigning to self is a no-op
@@ -501,7 +504,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn move_on_top_of_cells(
         &mut self,
-        source: Variable,
+        source: LValue,
         destinations: &[u16],
     ) -> CompileResult<()> {
         self.loop_while(source.address(), |compiler| {
@@ -557,15 +560,15 @@ impl<'a> BrainCrabCompiler<'a> {
                 let b = b.get_u8()?;
                 Ok(a.wrapping_add(b).into())
             }
-            (a, Value::Variable(Variable::Owned(b))) => {
+            (a, Value::LValue(b)) if b.is_owned() => {
                 self.add_assign(b.address, a)?;
-                Ok(Value::owned(b))
+                Ok(Value::lvalue(b))
             }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.add_assign(temp.address, b)?;
 
-                Ok(Value::owned(temp))
+                Ok(Value::lvalue(temp))
             }
         }
     }
@@ -579,15 +582,15 @@ impl<'a> BrainCrabCompiler<'a> {
                 let b = b.get_u8()?;
                 Ok(a.wrapping_mul(b).into())
             }
-            (a, Value::Variable(Variable::Owned(b))) => {
+            (a, Value::LValue(b)) if b.is_owned() => {
                 self.mul_assign(b.address, a)?;
-                Ok(Value::owned(b))
+                Ok(Value::lvalue(b))
             }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.mul_assign(temp.address, b)?;
 
-                Ok(Value::owned(temp))
+                Ok(Value::lvalue(temp))
             }
         }
     }
@@ -605,7 +608,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 let temp = self.new_owned(a)?;
                 self.sub_assign(temp.address, b)?;
 
-                Ok(Value::owned(temp))
+                Ok(Value::lvalue(temp))
             }
         }
     }
@@ -656,14 +659,18 @@ impl<'a> BrainCrabCompiler<'a> {
                     Ok(true.into())
                 }
             }
-            Value::Variable(Variable::Owned(owned)) => {
-                self.not_assign(owned.address, owned.borrow().into())?;
-                Ok(owned.into())
-            }
-            Value::Variable(Variable::Borrow { address, .. }) => {
-                let result = self.new_owned(false)?;
-                self.not_assign(result.address, Value::new_borrow(address, Type::Bool))?;
-                Ok(result.into())
+            Value::LValue(lvalue) => {
+                if lvalue.is_owned() {
+                    self.not_assign(lvalue.address, lvalue.borrow().into())?;
+                    Ok(lvalue.into())
+                } else {
+                    let result = self.new_owned(false)?;
+                    self.not_assign(
+                        result.address,
+                        Value::new_borrow(lvalue.address, Type::Bool),
+                    )?;
+                    Ok(result.into())
+                }
             }
         }
     }
@@ -677,19 +684,19 @@ impl<'a> BrainCrabCompiler<'a> {
                 let b = b.get_bool()?;
                 Ok((a && b).into())
             }
-            (Value::Variable(Variable::Owned(a)), b) => {
+            (Value::LValue(a), b) if a.is_owned() => {
                 self.and_assign(a.address, b)?;
-                Ok(Value::owned(a))
+                Ok(Value::lvalue(a))
             }
-            (a, Value::Variable(Variable::Owned(b))) => {
+            (a, Value::LValue(b)) if b.is_owned() => {
                 self.and_assign(b.address, a)?;
-                Ok(Value::owned(b))
+                Ok(Value::lvalue(b))
             }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.and_assign(temp.address, b)?;
 
-                Ok(Value::owned(temp))
+                Ok(Value::lvalue(temp))
             }
         }
     }
@@ -703,19 +710,19 @@ impl<'a> BrainCrabCompiler<'a> {
                 let b = b.get_bool()?;
                 Ok((a || b).into())
             }
-            (Value::Variable(Variable::Owned(a)), b) => {
+            (Value::LValue(a), b) if a.is_owned() => {
                 self.or_assign(a.address, b)?;
-                Ok(Value::owned(a))
+                Ok(Value::lvalue(a))
             }
-            (a, Value::Variable(Variable::Owned(b))) => {
+            (a, Value::LValue(b)) if b.is_owned() => {
                 self.or_assign(b.address, a)?;
-                Ok(Value::owned(b))
+                Ok(Value::lvalue(b))
             }
             (a, b) => {
                 let temp = self.new_owned(a)?;
                 self.or_assign(temp.address, b)?;
 
-                Ok(Value::owned(temp))
+                Ok(Value::lvalue(temp))
             }
         }
     }
@@ -729,7 +736,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 let b = b.get_u8()?;
                 Ok((a != b).into())
             }
-            (a, Value::Variable(Variable::Owned(mut b))) => {
+            (a, Value::LValue(mut b)) if b.is_owned() => {
                 self.sub_assign(b.address, a)?;
                 b = self.reinterpret_cast(b, Type::Bool)?;
                 Ok(b.into())
@@ -928,7 +935,7 @@ impl<'a> BrainCrabCompiler<'a> {
                             Ok(())
                         }
                     }
-                    Value::Variable(predicate) => self.loop_while(predicate.address(), body),
+                    Value::LValue(predicate) => self.loop_while(predicate.address(), body),
                 }
             }
             _ => {
