@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use crate::{
     absolute_bf::{ABFProgram, ABFTree},
     allocator::BrainCrabAllocator,
-    ast::{Expression, Instruction, Program},
+    ast::{Expression, Instruction, LValueExpression, Program},
     compiler_error::{CompileResult, CompilerError},
     constant_value::ConstantValue,
     types::Type,
@@ -832,10 +832,27 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
+    pub fn eval_lvalue_expression(
+        &mut self,
+        expression: LValueExpression<'a>,
+    ) -> CompileResult<Value> {
+        match expression {
+            LValueExpression::Constant(value) => Ok(value.into()),
+            LValueExpression::Variable(name) => self.borrow_immutable(name),
+            LValueExpression::Index(name, indices) => {
+                let array = self.borrow_immutable(name)?;
+                let mut index_values = vec![];
+                for index_expression in indices {
+                    index_values.push(self.eval_expression(index_expression)?);
+                }
+                Self::eval_index(array, &index_values)
+            }
+        }
+    }
+
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
-            Expression::Constant(value) => Ok(value.into()),
-            Expression::Variable(name) => self.borrow_immutable(name),
+            Expression::LValue(lvalue) => self.eval_lvalue_expression(lvalue),
             Expression::Add(a, b) => {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
@@ -905,14 +922,6 @@ impl<'a> BrainCrabCompiler<'a> {
                 let b = self.eval_expression(*b)?;
                 self.eval_greater_than(a, b)
             }
-            Expression::Index(name, indices) => {
-                let array = self.borrow_immutable(name)?;
-                let mut index_values = vec![];
-                for index_expression in indices {
-                    index_values.push(self.eval_expression(index_expression)?);
-                }
-                Self::eval_index(array, &index_values)
-            }
         }
     }
 
@@ -922,7 +931,7 @@ impl<'a> BrainCrabCompiler<'a> {
         body: F,
     ) -> CompileResult<()> {
         match predicate {
-            Expression::Constant(predicate) => {
+            Expression::LValue(LValueExpression::Constant(predicate)) => {
                 if predicate.get_bool()? {
                     // Infinite loop
                     let temp = self.new_owned(1)?;
@@ -932,7 +941,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     Ok(())
                 }
             }
-            Expression::Variable(variable) => {
+            Expression::LValue(LValueExpression::Variable(variable)) => {
                 let predicate = self.borrow_immutable(variable)?;
                 match predicate {
                     Value::Constant(predicate) => {

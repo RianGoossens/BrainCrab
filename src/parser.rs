@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, fmt::Display, iter};
 
 use crate::{
-    ast::{Expression, Instruction, Program},
+    ast::{Expression, Instruction, LValueExpression, Program},
     constant_value::ConstantValue,
     types::Type,
 };
@@ -592,9 +592,9 @@ impl BrainCrabParser {
     pub fn parse_constant_expression<'a>(
         &mut self,
         string: &'a str,
-    ) -> ParseResult<'a, Expression<'a>> {
+    ) -> ParseResult<'a, LValueExpression<'a>> {
         self.parse_constant(string)
-            .map(|x| x.map(Expression::Constant))
+            .map(|x| x.map(LValueExpression::Constant))
     }
 
     pub fn parse_variable_name<'a>(&mut self, string: &'a str) -> ParseResult<'a, &'a str> {
@@ -611,12 +611,12 @@ impl BrainCrabParser {
         self.success(string, value, start_index, self.index - start_index)
     }
 
-    pub fn parse_variable<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+    pub fn parse_variable<'a>(&mut self, string: &'a str) -> ParseResult<'a, LValueExpression<'a>> {
         let result = self.parse_variable_name(string)?;
         Ok(result.map(|x| x.into()))
     }
 
-    pub fn parse_indexing<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+    pub fn parse_indexing<'a>(&mut self, string: &'a str) -> ParseResult<'a, LValueExpression<'a>> {
         let start_index = self.index;
         let array_name = self.parse_variable_name(string)?.value;
         self.optional(string, Self::whitespace)?;
@@ -637,9 +637,24 @@ impl BrainCrabParser {
             }
         }
         self.literal(string, "]")?;
-        let result = Expression::Index(array_name, indices);
+        let result = LValueExpression::Index(array_name, indices);
 
         self.success(string, result, start_index, self.index - start_index)
+    }
+
+    pub fn parse_lvalue_expression<'a>(
+        &mut self,
+        string: &'a str,
+    ) -> ParseResult<'a, Expression<'a>> {
+        self.one_of(
+            string,
+            &[
+                &Self::parse_constant_expression,
+                &Self::parse_indexing,
+                &Self::parse_variable,
+            ],
+        )
+        .map(|x| x.map(|x| x.into()))
     }
 
     pub fn parse_parens<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
@@ -659,9 +674,7 @@ impl BrainCrabParser {
         self.one_of(
             string,
             &[
-                &Self::parse_constant_expression,
-                &Self::parse_indexing,
-                &Self::parse_variable,
+                &Self::parse_lvalue_expression,
                 &Self::parse_parens,
                 &Self::parse_not_expression,
             ],
