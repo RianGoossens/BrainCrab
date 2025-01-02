@@ -4,7 +4,7 @@ use crate::{constant_value::ConstantValue, types::Type};
 pub enum Expression<'a> {
     Constant(ConstantValue),
     Variable(&'a str),
-    Index(&'a str, Vec<u8>),
+    Index(&'a str, Vec<Expression<'a>>),
 
     Add(Box<Expression<'a>>, Box<Expression<'a>>),
     Sub(Box<Expression<'a>>, Box<Expression<'a>>),

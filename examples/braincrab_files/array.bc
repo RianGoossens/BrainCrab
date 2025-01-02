@@ -28,3 +28,7 @@ for row in interesting {
     }
     write('\n');
 }
+
+let my_array = ['r'..'z'];
+mut index = 3;
+write(my_array[ 1  + index  ]);

@@ -812,12 +812,18 @@ impl<'a> BrainCrabCompiler<'a> {
         self.eval_not(opposite)
     }
 
-    fn eval_index(array: Value, indices: &[u8]) -> CompileResult<Value> {
+    fn eval_index(array: Value, indices: &[Value]) -> CompileResult<Value> {
         match indices {
-            [head, tail @ ..] => {
+            [index, tail @ ..] => {
                 if let Value::Constant(ConstantValue::Array(array)) = array {
-                    // TODO: this clone operation can be quite expensive
-                    Self::eval_index(array[*head as usize].clone().into(), tail)
+                    match index {
+                        // TODO: this clone operation can be quite expensive
+                        Value::Constant(constant_value) => Self::eval_index(
+                            array[constant_value.get_u8()? as usize].clone().into(),
+                            tail,
+                        ),
+                        Value::LValue(lvalue) => todo!(),
+                    }
                 } else {
                     Err(CompilerError::NotAnArray)
                 }
@@ -901,7 +907,11 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             Expression::Index(name, indices) => {
                 let array = self.borrow_immutable(name)?;
-                Self::eval_index(array, &indices)
+                let mut index_values = vec![];
+                for index_expression in indices {
+                    index_values.push(self.eval_expression(index_expression)?);
+                }
+                Self::eval_index(array, &index_values)
             }
         }
     }
@@ -962,7 +972,7 @@ impl<'a> BrainCrabCompiler<'a> {
         if let Type::Array { len, .. } = array.value_type()? {
             for i in 0..len {
                 self.scoped(|compiler| {
-                    let element = Self::eval_index(array.borrow(), &[i])?;
+                    let element = Self::eval_index(array.borrow(), &[i.into()])?;
                     compiler.register_variable(loop_variable, element)?;
                     compiler.compile_instructions(body.clone())
                 })?;
