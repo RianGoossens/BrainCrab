@@ -68,6 +68,42 @@ impl<'a> ScopedVariableMap<'a> {
     }
 }
 
+enum Accessor {
+    Index(Value),
+}
+
+struct AccessedValue {
+    source: Value,
+    accessors: Vec<Accessor>,
+}
+
+impl AccessedValue {
+    fn new(source: impl Into<Value>, accessors: Vec<Accessor>) -> Self {
+        Self {
+            source: source.into(),
+            accessors,
+        }
+    }
+    fn unit(source: impl Into<Value>) -> Self {
+        Self::new(source, Vec::new())
+    }
+    fn value_type(&self) -> CompileResult<Type> {
+        fn value_type_impl(source_type: &Type, accessors: &[Accessor]) -> CompileResult<Type> {
+            match accessors {
+                [] => Ok(source_type.clone()),
+                [Accessor::Index(_), tail @ ..] => {
+                    if let Type::Array { element_type, .. } = source_type {
+                        value_type_impl(element_type, tail)
+                    } else {
+                        Err(CompilerError::NotAnArray)
+                    }
+                }
+            }
+        }
+        value_type_impl(&self.source.value_type()?, &self.accessors)
+    }
+}
+
 pub struct BrainCrabCompiler<'a> {
     pub program_stack: Vec<ABFProgram>,
     pub variable_map: ScopedVariableMap<'a>,
@@ -171,7 +207,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn new_owned<V: Into<Value>>(&mut self, value: V) -> CompileResult<LValue> {
+    pub fn new_owned(&mut self, value: impl Into<Value>) -> CompileResult<LValue> {
         let value: Value = value.into();
         match value {
             Value::LValue(lvalue) if lvalue.is_owned() => Ok(lvalue),
@@ -213,7 +249,7 @@ impl<'a> BrainCrabCompiler<'a> {
         self.push_instruction(ABFTree::Read(address));
     }
 
-    pub fn scoped<F: FnOnce(&mut Self) -> CompileResult<()>>(&mut self, f: F) -> CompileResult<()> {
+    pub fn scoped(&mut self, f: impl FnOnce(&mut Self) -> CompileResult<()>) -> CompileResult<()> {
         self.variable_map.start_scope();
         f(self)?;
         let scope = self.variable_map.end_scope();
@@ -299,10 +335,10 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn n_times<F: Fn(&mut Self) -> CompileResult<()>>(
+    pub fn n_times(
         &mut self,
         n: Value,
-        f: F,
+        f: impl Fn(&mut Self) -> CompileResult<()>,
     ) -> CompileResult<()> {
         match n {
             Value::Constant(n) => match n {
@@ -317,7 +353,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     }
                 }
                 _ => {
-                    panic!("n times with a constant value which is not a bool or u8")
+                    panic!("n times with a constant value which is not a bool or u8. Instead got {n:?}")
                 }
             },
             Value::LValue(lvalue) => {
@@ -812,47 +848,100 @@ impl<'a> BrainCrabCompiler<'a> {
         self.eval_not(opposite)
     }
 
-    fn eval_index(array: Value, indices: &[Value]) -> CompileResult<Value> {
-        match indices {
-            [index, tail @ ..] => {
-                if let Value::Constant(ConstantValue::Array(array)) = array {
-                    match index {
-                        // TODO: this clone operation can be quite expensive
-                        Value::Constant(constant_value) => Self::eval_index(
-                            array[constant_value.get_u8()? as usize].clone().into(),
-                            tail,
-                        ),
-                        Value::LValue(lvalue) => todo!(),
-                    }
-                } else {
-                    Err(CompilerError::NotAnArray)
-                }
+    fn eval_const_index(array: Value, index: u8) -> CompileResult<Value> {
+        if let Value::Constant(ConstantValue::Array(array)) = array {
+            Ok(array[index as usize].clone().into())
+        } else {
+            Err(CompilerError::NotAnArray)
+        }
+    }
+    fn eval_const_accessors(source: Value, accessors: &[Accessor]) -> CompileResult<Option<Value>> {
+        match accessors {
+            [] => Ok(Some(source)),
+            [Accessor::Index(Value::Constant(index)), tail @ ..] => {
+                let indexed_value = Self::eval_const_index(source, index.get_u8()?)?;
+                Self::eval_const_accessors(indexed_value, tail)
             }
-            _ => Ok(array),
+            _ => Ok(None),
+        }
+    }
+    fn eval_accessors(
+        &mut self,
+        source: Value,
+        accessors: &[Accessor],
+        f: &impl Fn(&mut Self, Value) -> CompileResult<()>,
+    ) -> CompileResult<()> {
+        match accessors {
+            [] => f(self, source),
+            [accessor, tail @ ..] => match accessor {
+                Accessor::Index(index) => match index {
+                    Value::Constant(index) => {
+                        let indexed_value = Self::eval_const_index(source, index.get_u8()?)?;
+                        self.eval_accessors(indexed_value, tail, f)
+                    }
+                    Value::LValue(index) => {
+                        if let Type::Array { len, .. } = source.value_type()? {
+                            for i in 0..len {
+                                let array = source.borrow();
+                                self.scoped(|compiler| {
+                                    let predicate =
+                                        compiler.eval_equals(i.into(), index.borrow().into())?;
+                                    compiler.if_then(predicate, |compiler| {
+                                        let indexed_value = Self::eval_const_index(array, i)?;
+                                        compiler.eval_accessors(indexed_value, tail, f)
+                                    })
+                                })?;
+                            }
+                            Ok(())
+                        } else {
+                            Err(CompilerError::NotAnArray)
+                        }
+                    }
+                },
+            },
         }
     }
 
-    pub fn eval_lvalue_expression(
+    fn eval_lvalue_expression(
         &mut self,
         expression: LValueExpression<'a>,
-    ) -> CompileResult<Value> {
+    ) -> CompileResult<AccessedValue> {
         match expression {
-            LValueExpression::Constant(value) => Ok(value.into()),
-            LValueExpression::Variable(name) => self.borrow_immutable(name),
+            LValueExpression::Variable(name) => {
+                self.borrow_immutable(name).map(AccessedValue::unit)
+            }
             LValueExpression::Index(name, indices) => {
                 let array = self.borrow_immutable(name)?;
-                let mut index_values = vec![];
+                let mut accessors = vec![];
                 for index_expression in indices {
-                    index_values.push(self.eval_expression(index_expression)?);
+                    accessors.push(Accessor::Index(self.eval_expression(index_expression)?));
                 }
-                Self::eval_index(array, &index_values)
+                Ok(AccessedValue::new(array, accessors))
             }
         }
     }
 
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
         match expression {
-            Expression::LValue(lvalue) => self.eval_lvalue_expression(lvalue),
+            Expression::Constant(constant_value) => Ok(constant_value.into()),
+            Expression::LValue(expression) => {
+                let accessed_value = self.eval_lvalue_expression(expression)?;
+                if let Some(value) = Self::eval_const_accessors(
+                    accessed_value.source.borrow(),
+                    &accessed_value.accessors,
+                )? {
+                    Ok(value)
+                } else {
+                    let accessed_value_type = accessed_value.value_type()?;
+                    let temp = self.allocate(accessed_value_type)?;
+                    self.eval_accessors(
+                        accessed_value.source,
+                        &accessed_value.accessors,
+                        &|compiler, value| compiler.copy_on_top_of_cells(value, &[temp.address]),
+                    )?;
+                    Ok(temp.into())
+                }
+            }
             Expression::Add(a, b) => {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
@@ -931,7 +1020,7 @@ impl<'a> BrainCrabCompiler<'a> {
         body: F,
     ) -> CompileResult<()> {
         match predicate {
-            Expression::LValue(LValueExpression::Constant(predicate)) => {
+            Expression::Constant(predicate) => {
                 if predicate.get_bool()? {
                     // Infinite loop
                     let temp = self.new_owned(1)?;
@@ -970,7 +1059,24 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn for_each(
+    fn for_each<F>(&mut self, array: Value, function: F) -> CompileResult<()>
+    where
+        F: Fn(&mut Self, Value) -> CompileResult<()>,
+    {
+        if let Type::Array { len, .. } = array.value_type()? {
+            for i in 0..len {
+                self.scoped(|compiler| {
+                    let element = Self::eval_const_index(array.borrow(), i)?;
+                    function(compiler, element)
+                })?;
+            }
+            Ok(())
+        } else {
+            Err(CompilerError::NotAnArray)
+        }
+    }
+
+    fn for_each_expression(
         &mut self,
         loop_variable: &'a str,
         array_expression: Expression<'a>,
@@ -978,18 +1084,10 @@ impl<'a> BrainCrabCompiler<'a> {
     ) -> CompileResult<()> {
         let array = self.eval_expression(array_expression)?;
 
-        if let Type::Array { len, .. } = array.value_type()? {
-            for i in 0..len {
-                self.scoped(|compiler| {
-                    let element = Self::eval_index(array.borrow(), &[i.into()])?;
-                    compiler.register_variable(loop_variable, element)?;
-                    compiler.compile_instructions(body.clone())
-                })?;
-            }
-            Ok(())
-        } else {
-            Err(CompilerError::NotAnArray)
-        }
+        self.for_each(array, |compiler, value| {
+            compiler.register_variable(loop_variable, value)?;
+            compiler.compile_instructions(body.clone())
+        })
     }
 }
 
@@ -1066,7 +1164,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     loop_variable,
                     array,
                     body,
-                } => self.for_each(loop_variable, array, body)?,
+                } => self.for_each_expression(loop_variable, array, body)?,
             }
         }
         Ok(())

@@ -1,0 +1,11 @@
+let table = ['-', '/', '|', '\\', '-'];
+
+for j in [0..100] {
+    mut i = j;
+    let index = i % 10;
+    if index < 5 {
+        write(table[index]);
+    } else {
+        write(table[9 - index]);
+    }
+}

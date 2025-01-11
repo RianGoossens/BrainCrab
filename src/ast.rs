@@ -2,23 +2,13 @@ use crate::{constant_value::ConstantValue, types::Type};
 
 #[derive(Debug, Clone)]
 pub enum LValueExpression<'a> {
-    Constant(ConstantValue),
     Variable(&'a str),
     Index(&'a str, Vec<Expression<'a>>),
 }
 
 impl<'a> LValueExpression<'a> {
-    pub fn constant<A: Into<ConstantValue>>(value: A) -> Self {
-        Self::Constant(value.into())
-    }
     pub fn variable(name: &'a str) -> Self {
         Self::Variable(name)
-    }
-}
-
-impl<'a, A: Into<ConstantValue>> From<A> for LValueExpression<'a> {
-    fn from(value: A) -> Self {
-        LValueExpression::constant(value)
     }
 }
 
@@ -30,6 +20,7 @@ impl<'a> From<&'a str> for LValueExpression<'a> {
 
 #[derive(Debug, Clone)]
 pub enum Expression<'a> {
+    Constant(ConstantValue),
     LValue(LValueExpression<'a>),
 
     Add(Box<Expression<'a>>, Box<Expression<'a>>),
@@ -51,6 +42,9 @@ pub enum Expression<'a> {
 }
 
 impl<'a> Expression<'a> {
+    pub fn constant(value: impl Into<ConstantValue>) -> Self {
+        Self::Constant(value.into())
+    }
     pub fn new_add(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::Add(Box::new(a), Box::new(b))
     }
@@ -95,8 +89,14 @@ impl<'a> Expression<'a> {
     }
 }
 
-impl<'a, A: Into<LValueExpression<'a>>> From<A> for Expression<'a> {
+impl<'a, A: Into<ConstantValue>> From<A> for Expression<'a> {
     fn from(value: A) -> Self {
+        Self::constant(value)
+    }
+}
+
+impl<'a> From<&'a str> for Expression<'a> {
+    fn from(value: &'a str) -> Self {
         Expression::LValue(value.into())
     }
 }
