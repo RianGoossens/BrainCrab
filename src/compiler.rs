@@ -7,7 +7,7 @@ use crate::{
     compiler_error::{CompileResult, CompilerError},
     constant_value::ConstantValue,
     types::Type,
-    value::{LValue, Value},
+    value::{LValue, MemorySlice, Value},
 };
 
 pub type AddressPool = Rc<RefCell<BrainCrabAllocator>>;
@@ -213,11 +213,7 @@ impl<'a> BrainCrabCompiler<'a> {
             Value::LValue(lvalue) if lvalue.is_owned() => Ok(lvalue),
             _ => {
                 let owned = self.allocate(value.value_type()?)?;
-                assert!(
-                    value.value_type()?.size() == 1,
-                    "bigger types not yet supported"
-                );
-                self.add_assign(owned.address, value)?;
+                self.add_slices(value, &[owned.memory_slice()])?;
                 Ok(owned)
             }
         }
@@ -254,7 +250,7 @@ impl<'a> BrainCrabCompiler<'a> {
         f(self)?;
         let scope = self.variable_map.end_scope();
         for owned in scope {
-            self.zero(owned.address);
+            self.zero(owned.memory_slice());
         }
         Ok(())
     }
@@ -291,9 +287,10 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             Value::LValue(variable) => {
                 let if_check = self.new_owned(variable)?;
+                //if_check.type_check(&Type::Bool)?;
                 self.loop_while(if_check.address, |compiler| {
                     body(compiler)?;
-                    compiler.zero(if_check.address);
+                    compiler.zero(if_check.memory_slice());
                     Ok(())
                 })
             }
@@ -317,13 +314,14 @@ impl<'a> BrainCrabCompiler<'a> {
                     else_case(self)
                 }
             }
-            Value::LValue(variable) => {
+            Value::LValue(predicate) => {
+                //predicate.type_check(&Type::Bool)?;
                 let else_check = self.new_owned(1)?;
-                let if_check = self.new_owned(variable)?;
+                let if_check = self.new_owned(predicate)?;
                 self.loop_while(if_check.address, |compiler| {
                     if_case(compiler)?;
                     compiler.sub_assign(else_check.address, 1.into())?;
-                    compiler.zero(if_check.address);
+                    compiler.zero(if_check.memory_slice());
                     Ok(())
                 })?;
                 self.loop_while(else_check.address, |compiler| {
@@ -392,16 +390,18 @@ impl<'a> BrainCrabCompiler<'a> {
             _ => {
                 let owned = self.new_owned(value)?;
                 self.write(owned.address);
-                self.zero(owned.address);
+                self.zero(owned.memory_slice());
                 Ok(())
             }
         }
     }
 
-    pub fn zero(&mut self, address: u16) {
-        self.program().append(ABFProgram {
-            body: vec![ABFTree::While(address, vec![ABFTree::Add(address, -1)])],
-        });
+    pub fn zero(&mut self, memory_slice: MemorySlice) {
+        let mut body = vec![];
+        for address in memory_slice.range() {
+            body.push(ABFTree::While(address, vec![ABFTree::Add(address, -1)]));
+        }
+        self.program().append(ABFProgram { body });
     }
 
     pub fn add_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
@@ -423,7 +423,7 @@ impl<'a> BrainCrabCompiler<'a> {
             let value_address = variable.address;
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to sub a temp from itself, which is not allowed as it's already consumed");
-                self.zero(destination);
+                self.zero(MemorySlice::new(destination, 1));
                 return Ok(());
             }
         }
@@ -447,7 +447,7 @@ impl<'a> BrainCrabCompiler<'a> {
             let value_address = variable.address;
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to div a temp from itself, which is not allowed as it's already consumed");
-                self.zero(destination);
+                self.zero(MemorySlice::new(destination, 1));
                 self.add_assign(destination, 1.into())?;
                 return Ok(());
             }
@@ -464,7 +464,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     compiler.add_assign(result.address, 1.into())
                 },
                 |compiler| {
-                    compiler.zero(destination);
+                    compiler.zero(MemorySlice::new(destination, 1));
                     Ok(())
                 },
             )
@@ -477,7 +477,7 @@ impl<'a> BrainCrabCompiler<'a> {
             let value_address = variable.address;
             if value_address == destination {
                 assert!(!variable.is_owned(), "Attempting to mod a temp from itself, which is not allowed as it's already consumed");
-                self.zero(destination);
+                self.zero(MemorySlice::new(destination, 1));
                 return Ok(());
             }
         }
@@ -499,7 +499,7 @@ impl<'a> BrainCrabCompiler<'a> {
         self.if_then_else(
             value,
             |compiler| {
-                compiler.zero(destination);
+                compiler.zero(MemorySlice::new(destination, 1));
                 Ok(())
             },
             |compiler| compiler.add_assign(destination, 1.into()),
@@ -510,7 +510,7 @@ impl<'a> BrainCrabCompiler<'a> {
             value,
             |_| Ok(()),
             |compiler| {
-                compiler.zero(destination);
+                compiler.zero(MemorySlice::new(destination, 1));
                 Ok(())
             },
         )
@@ -533,7 +533,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 return Ok(());
             }
         }
-        self.zero(destination);
+        self.zero(MemorySlice::new(destination, 1));
         self.add_assign(destination, value)?;
         Ok(())
     }
@@ -563,6 +563,21 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             Ok(())
         })?;
+        Ok(())
+    }
+
+    pub fn add_slices(&mut self, source: Value, destinations: &[MemorySlice]) -> CompileResult<()> {
+        //TODO check if destinations have correct sizes
+        let data = source.data();
+        for (offset, x) in data.into_iter().enumerate() {
+            let offset = offset as u16;
+            self.n_times(x, |compiler| {
+                for destination in destinations {
+                    compiler.add_to(destination.address + offset, 1);
+                }
+                Ok(())
+            })?;
+        }
         Ok(())
     }
 
@@ -815,13 +830,13 @@ impl<'a> BrainCrabCompiler<'a> {
                                     compiler.sub_assign(b_temp.address, 1.into())
                                 },
                                 |compiler| {
-                                    compiler.zero(a_temp.address);
+                                    compiler.zero(a_temp.memory_slice());
                                     compiler.sub_assign(loop_value.address, 1.into())
                                 },
                             )
                         },
                         |compiler| {
-                            compiler.zero(b_temp.address);
+                            compiler.zero(b_temp.memory_slice());
                             compiler.add_assign(result.address, 1.into())?;
                             compiler.sub_assign(loop_value.address, 1.into())
                         },

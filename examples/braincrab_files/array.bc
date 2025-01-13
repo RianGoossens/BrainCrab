@@ -33,3 +33,5 @@ for row in interesting {
 let my_array = ['r'..'z'];
 mut index = 3;
 write(my_array[ 1  + index  ]);
+
+mut mutable_array = ['a'..'z'];

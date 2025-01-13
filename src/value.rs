@@ -1,9 +1,26 @@
+use std::ops::Range;
+
 use crate::{
     compiler::AddressPool,
     compiler_error::{CompileResult, CompilerError},
     constant_value::ConstantValue,
     types::Type,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemorySlice {
+    pub address: u16,
+    pub len: u16,
+}
+
+impl MemorySlice {
+    pub fn new(address: u16, len: u16) -> Self {
+        Self { address, len }
+    }
+    pub fn range(&self) -> Range<u16> {
+        self.address..self.address + self.len
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct LValue {
@@ -38,6 +55,35 @@ impl LValue {
             address_pool: None,
         }
     }
+    pub fn type_check(&self, expected: &Type) -> CompileResult<()> {
+        let actual = &self.value_type;
+        if actual == expected {
+            Ok(())
+        } else {
+            Err(CompilerError::TypeError {
+                expected: expected.clone(),
+                actual: actual.clone(),
+            })
+        }
+    }
+    pub fn memory_slice(&self) -> MemorySlice {
+        MemorySlice {
+            address: self.address,
+            len: self.value_type.size(),
+        }
+    }
+    pub fn data(&self) -> Vec<LValue> {
+        let mut result = vec![];
+        for address in self.memory_slice().range() {
+            result.push(LValue {
+                address,
+                value_type: Type::U8,
+                mutable: self.mutable,
+                address_pool: None,
+            });
+        }
+        result
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -67,6 +113,17 @@ impl Value {
         match self {
             Value::Constant(_) => false,
             Value::LValue(variable) => variable.mutable,
+        }
+    }
+
+    pub fn data(&self) -> Vec<Value> {
+        match self {
+            Value::Constant(constant_value) => constant_value
+                .data()
+                .into_iter()
+                .map(|x| x.into())
+                .collect(),
+            Value::LValue(lvalue) => lvalue.data().into_iter().map(|x| x.into()).collect(),
         }
     }
 

@@ -23,6 +23,19 @@ impl From<bool> for ConstantValue {
 }
 
 impl ConstantValue {
+    pub fn data(&self) -> Vec<u8> {
+        fn data_impl(source: &ConstantValue, result: &mut Vec<u8>) {
+            match source {
+                ConstantValue::U8(value) => result.push(*value),
+                ConstantValue::Bool(value) => result.push(if *value { 1 } else { 0 }),
+                ConstantValue::Array(vec) => vec.iter().for_each(|x| data_impl(x, result)),
+            }
+        }
+        let mut result = vec![];
+        data_impl(self, &mut result);
+        result
+    }
+
     pub fn value_type(&self) -> CompileResult<Type> {
         match self {
             ConstantValue::U8(_) => Ok(Type::U8),
