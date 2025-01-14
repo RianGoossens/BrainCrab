@@ -863,18 +863,30 @@ impl<'a> BrainCrabCompiler<'a> {
         self.eval_not(opposite)
     }
 
-    fn eval_const_index(array: Value, index: u8) -> CompileResult<Value> {
-        if let Value::Constant(ConstantValue::Array(array)) = array {
-            Ok(array[index as usize].clone().into())
-        } else {
-            Err(CompilerError::NotAnArray)
+    fn eval_const_index(array: &Value, index: u8) -> CompileResult<Value> {
+        // Do bounds checks
+        match array {
+            Value::Constant(ConstantValue::Array(array)) => {
+                Ok(array[index as usize].clone().into())
+            }
+            Value::LValue(array) => match &array.value_type {
+                Type::Array { element_type, .. } => Ok(LValue {
+                    address: array.address + index as u16 * element_type.size(),
+                    value_type: element_type.as_ref().clone(),
+                    mutable: array.mutable,
+                    address_pool: None,
+                }
+                .into()),
+                _ => Err(CompilerError::NotAnArray),
+            },
+            _ => Err(CompilerError::NotAnArray),
         }
     }
     fn eval_const_accessors(source: Value, accessors: &[Accessor]) -> CompileResult<Option<Value>> {
         match accessors {
             [] => Ok(Some(source)),
             [Accessor::Index(Value::Constant(index)), tail @ ..] => {
-                let indexed_value = Self::eval_const_index(source, index.get_u8()?)?;
+                let indexed_value = Self::eval_const_index(&source, index.get_u8()?)?;
                 Self::eval_const_accessors(indexed_value, tail)
             }
             _ => Ok(None),
@@ -891,7 +903,7 @@ impl<'a> BrainCrabCompiler<'a> {
             [accessor, tail @ ..] => match accessor {
                 Accessor::Index(index) => match index {
                     Value::Constant(index) => {
-                        let indexed_value = Self::eval_const_index(source, index.get_u8()?)?;
+                        let indexed_value = Self::eval_const_index(&source, index.get_u8()?)?;
                         self.eval_accessors(indexed_value, tail, f)
                     }
                     Value::LValue(index) => {
@@ -902,7 +914,7 @@ impl<'a> BrainCrabCompiler<'a> {
                                     let predicate =
                                         compiler.eval_equals(i.into(), index.borrow().into())?;
                                     compiler.if_then(predicate, |compiler| {
-                                        let indexed_value = Self::eval_const_index(array, i)?;
+                                        let indexed_value = Self::eval_const_index(&array, i)?;
                                         compiler.eval_accessors(indexed_value, tail, f)
                                     })
                                 })?;
@@ -1081,7 +1093,7 @@ impl<'a> BrainCrabCompiler<'a> {
         if let Type::Array { len, .. } = array.value_type()? {
             for i in 0..len {
                 self.scoped(|compiler| {
-                    let element = Self::eval_const_index(array.borrow(), i)?;
+                    let element = Self::eval_const_index(&array.borrow(), i)?;
                     function(compiler, element)
                 })?;
             }

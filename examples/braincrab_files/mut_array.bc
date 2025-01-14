@@ -1,4 +1,8 @@
 {
-    mut mutable_array = [1,2,3];
+    let mutable_array = [1,2,3];
     mut copy = mutable_array;
+
+    mut index = 1;
+    index += 1;
+    write(copy[index]);
 }
