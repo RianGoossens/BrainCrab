@@ -29,7 +29,7 @@ Here are my upcoming tasks.
   - structs
 - Array functionality:
   - init with strings
-  - mutable arrays
+  - foreach on mutable arrays
 - Macros
 - Make read work as an expression
 - Comments
