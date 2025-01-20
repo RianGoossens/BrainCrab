@@ -1,0 +1,10 @@
+for i in [0..10] {
+    for j in [0..10] {
+        write('[');
+        write('0' + i);
+        print(", ");
+        write('0' + j);
+        print("] ");
+    }
+    print("\n");
+}

@@ -109,10 +109,28 @@ impl Value {
         }
     }
 
-    pub fn is_mutable(&self) -> bool {
+    pub fn is_owned(&self) -> bool {
+        if let Value::LValue(x) = self {
+            x.is_owned()
+        } else {
+            false
+        }
+    }
+
+    pub fn mutable<'a>(&self) -> CompileResult<'a, LValue> {
         match self {
-            Value::Constant(_) => false,
-            Value::LValue(variable) => variable.mutable,
+            Value::Constant(_) => Err(CompilerError::MutableBorrowOfImmutableVariable(
+                self.borrow(),
+            )),
+            Value::LValue(variable) => {
+                if variable.mutable {
+                    Ok(variable.borrow())
+                } else {
+                    Err(CompilerError::MutableBorrowOfImmutableVariable(
+                        self.borrow(),
+                    ))
+                }
+            }
         }
     }
 
@@ -127,14 +145,14 @@ impl Value {
         }
     }
 
-    pub fn value_type(&self) -> CompileResult<Type> {
+    pub fn value_type<'a>(&self) -> CompileResult<'a, Type> {
         match self {
             Value::Constant(value) => value.value_type(),
             Value::LValue(variable) => Ok(variable.value_type.clone()),
         }
     }
 
-    pub fn type_check(&self, expected: Type) -> CompileResult<()> {
+    pub fn type_check<'a>(&self, expected: Type) -> CompileResult<'a, ()> {
         let actual = self.value_type()?;
         if actual == expected {
             Ok(())

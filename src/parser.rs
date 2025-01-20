@@ -645,8 +645,15 @@ impl BrainCrabParser {
     pub fn parse_lvalue_expression<'a>(
         &mut self,
         string: &'a str,
-    ) -> ParseResult<'a, Expression<'a>> {
+    ) -> ParseResult<'a, LValueExpression<'a>> {
         self.one_of(string, &[&Self::parse_indexing, &Self::parse_variable])
+    }
+
+    pub fn parse_lvalue_expression_expression<'a>(
+        &mut self,
+        string: &'a str,
+    ) -> ParseResult<'a, Expression<'a>> {
+        self.parse_lvalue_expression(string)
             .map(|x| x.map(Expression::LValue))
     }
 
@@ -668,7 +675,7 @@ impl BrainCrabParser {
             string,
             &[
                 &Self::parse_constant_expression,
-                &Self::parse_lvalue_expression,
+                &Self::parse_lvalue_expression_expression,
                 &Self::parse_parens,
                 &Self::parse_not_expression,
             ],
@@ -821,7 +828,7 @@ impl BrainCrabParser {
 
     pub fn parse_assignment<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
         let start_location = self.index;
-        let name = self.parse_variable_name(string)?.value;
+        let name = self.parse_lvalue_expression(string)?.value;
         self.optional(string, Self::whitespace)?;
         self.literal(string, "=")?;
         self.optional(string, Self::whitespace)?;

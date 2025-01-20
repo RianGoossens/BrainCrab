@@ -87,15 +87,18 @@ impl AccessedValue {
     fn unit(source: impl Into<Value>) -> Self {
         Self::new(source, Vec::new())
     }
-    fn value_type(&self) -> CompileResult<Type> {
-        fn value_type_impl(source_type: &Type, accessors: &[Accessor]) -> CompileResult<Type> {
+    fn value_type<'a>(&self) -> CompileResult<'a, Type> {
+        fn value_type_impl<'a>(
+            source_type: &Type,
+            accessors: &[Accessor],
+        ) -> CompileResult<'a, Type> {
             match accessors {
                 [] => Ok(source_type.clone()),
                 [Accessor::Index(_), tail @ ..] => {
                     if let Type::Array { element_type, .. } = source_type {
                         value_type_impl(element_type, tail)
                     } else {
-                        Err(CompilerError::NotAnArray)
+                        Err(CompilerError::NotAnArray(source_type.clone()))
                     }
                 }
             }
@@ -133,7 +136,7 @@ impl<'a> BrainCrabCompiler<'a> {
         self.program().push_instruction(instruction);
     }
 
-    pub fn get_result(mut self) -> CompileResult<ABFProgram> {
+    pub fn get_result(mut self) -> CompileResult<'a, ABFProgram> {
         if self.program_stack.len() != 1 {
             Err(CompilerError::UnclosedLoop)
         } else {
@@ -143,7 +146,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     // Memory management
 
-    pub fn allocate(&mut self, value_type: Type) -> CompileResult<LValue> {
+    pub fn allocate(&mut self, value_type: Type) -> CompileResult<'a, LValue> {
         if let Some(address) = self.address_pool.borrow_mut().allocate(value_type.size()) {
             Ok(LValue {
                 address,
@@ -156,13 +159,13 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn register_variable(&mut self, name: &'a str, value: Value) -> CompileResult<Value> {
+    pub fn register_variable(&mut self, name: &'a str, value: Value) -> CompileResult<'a, Value> {
         if self.variable_map.defined_in_current_scope(name) {
-            Err(CompilerError::AlreadyDefinedVariable(name.into()))
+            Err(CompilerError::AlreadyDefinedVariable(name))
         } else {
             match &value {
                 Value::LValue(lvalue) if lvalue.is_borrowed() => {
-                    Err(CompilerError::CantRegisterBorrowedValues(name.into()))
+                    Err(CompilerError::CantRegisterBorrowedValues(name))
                 }
                 _ => {
                     let borrowed = value.borrow();
@@ -178,7 +181,7 @@ impl<'a> BrainCrabCompiler<'a> {
         name: &'a str,
         value: Value,
         mutable: bool,
-    ) -> CompileResult<Value> {
+    ) -> CompileResult<'a, Value> {
         if mutable || matches!(value, Value::LValue(_)) {
             let mut owned = self.new_owned(value)?;
             owned.mutable = mutable;
@@ -190,24 +193,24 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn borrow_immutable(&self, name: &'a str) -> CompileResult<Value> {
+    pub fn borrow_immutable(&self, name: &'a str) -> CompileResult<'a, Value> {
         if let Some(variable) = self.variable_map.borrow_variable(name) {
             Ok(variable)
         } else {
-            Err(CompilerError::UndefinedVariable(name.into()))
+            Err(CompilerError::UndefinedVariable(name))
         }
     }
 
-    pub fn borrow_mutable(&self, name: &'a str) -> CompileResult<LValue> {
+    pub fn borrow_mutable(&self, name: &'a str) -> CompileResult<'a, LValue> {
         let result = self.borrow_immutable(name)?;
 
         match result {
             Value::LValue(lvalue) if lvalue.mutable => Ok(lvalue),
-            _ => Err(CompilerError::MutableBorrowOfImmutableVariable(name.into())),
+            _ => Err(CompilerError::MutableBorrowOfImmutableVariable(result)),
         }
     }
 
-    pub fn new_owned(&mut self, value: impl Into<Value>) -> CompileResult<LValue> {
+    pub fn new_owned(&mut self, value: impl Into<Value>) -> CompileResult<'a, LValue> {
         let value: Value = value.into();
         match value {
             Value::LValue(lvalue) if lvalue.is_owned() => Ok(lvalue),
@@ -219,7 +222,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn reinterpret_cast(&self, mut value: LValue, new_type: Type) -> CompileResult<LValue> {
+    pub fn reinterpret_cast(&self, mut value: LValue, new_type: Type) -> CompileResult<'a, LValue> {
         if value.value_type.size() != new_type.size() {
             Err(CompilerError::InvalidReinterpretCast {
                 original: value.value_type.clone(),
@@ -245,7 +248,10 @@ impl<'a> BrainCrabCompiler<'a> {
         self.push_instruction(ABFTree::Read(address));
     }
 
-    pub fn scoped(&mut self, f: impl FnOnce(&mut Self) -> CompileResult<()>) -> CompileResult<()> {
+    pub fn scoped(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> CompileResult<'a, ()>,
+    ) -> CompileResult<'a, ()> {
         self.variable_map.start_scope();
         f(self)?;
         let scope = self.variable_map.end_scope();
@@ -255,11 +261,11 @@ impl<'a> BrainCrabCompiler<'a> {
         Ok(())
     }
 
-    pub fn loop_while<F: FnOnce(&mut Self) -> CompileResult<()>>(
+    pub fn loop_while<F: FnOnce(&mut Self) -> CompileResult<'a, ()>>(
         &mut self,
         predicate: u16,
         f: F,
-    ) -> CompileResult<()> {
+    ) -> CompileResult<'a, ()> {
         self.program_stack.push(ABFProgram::new());
         self.scoped(|compiler| {
             f(compiler)?;
@@ -272,11 +278,11 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     // Utilities
-    pub fn if_then<I: FnOnce(&mut Self) -> CompileResult<()>>(
+    pub fn if_then<I: FnOnce(&mut Self) -> CompileResult<'a, ()>>(
         &mut self,
         predicate: Value,
         body: I,
-    ) -> CompileResult<()> {
+    ) -> CompileResult<'a, ()> {
         match predicate {
             Value::Constant(value) => {
                 if value.get_bool()? {
@@ -298,14 +304,14 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn if_then_else<
-        I: FnOnce(&mut Self) -> CompileResult<()>,
-        E: FnOnce(&mut Self) -> CompileResult<()>,
+        I: FnOnce(&mut Self) -> CompileResult<'a, ()>,
+        E: FnOnce(&mut Self) -> CompileResult<'a, ()>,
     >(
         &mut self,
         predicate: Value,
         if_case: I,
         else_case: E,
-    ) -> CompileResult<()> {
+    ) -> CompileResult<'a, ()> {
         match predicate {
             Value::Constant(value) => {
                 if value.get_bool()? {
@@ -336,8 +342,8 @@ impl<'a> BrainCrabCompiler<'a> {
     pub fn n_times(
         &mut self,
         n: Value,
-        f: impl Fn(&mut Self) -> CompileResult<()>,
-    ) -> CompileResult<()> {
+        f: impl Fn(&mut Self) -> CompileResult<'a, ()>,
+    ) -> CompileResult<'a, ()> {
         match n {
             Value::Constant(n) => match n {
                 ConstantValue::U8(n) => {
@@ -381,7 +387,7 @@ impl<'a> BrainCrabCompiler<'a> {
         Ok(())
     }
 
-    pub fn write_value(&mut self, value: Value) -> CompileResult<()> {
+    pub fn write_value(&mut self, value: Value) -> CompileResult<'a, ()> {
         match &value {
             Value::LValue(lvalue) if lvalue.is_borrowed() => {
                 self.write(lvalue.address);
@@ -404,7 +410,7 @@ impl<'a> BrainCrabCompiler<'a> {
         self.program().append(ABFProgram { body });
     }
 
-    pub fn add_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+    pub fn add_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
         if let Value::LValue(variable) = &value {
             let value_address = variable.address;
             if value_address == destination {
@@ -418,7 +424,7 @@ impl<'a> BrainCrabCompiler<'a> {
         self.copy_on_top_of_cells(value, &[destination])
     }
 
-    pub fn sub_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+    pub fn sub_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
         if let Value::LValue(variable) = &value {
             let value_address = variable.address;
             if value_address == destination {
@@ -433,16 +439,16 @@ impl<'a> BrainCrabCompiler<'a> {
         })
     }
 
-    pub fn mul_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+    pub fn mul_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
         let result = self.new_owned(0)?;
         self.n_times(value, move |compiler| {
             compiler.add_assign(result.address, Value::new_borrow(destination, Type::U8))?;
             Ok(())
         })?;
-        self.assign(destination, result.into())
+        self.assign(MemorySlice::new(destination, 1), result.into())
     }
 
-    pub fn div_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+    pub fn div_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
         if let Value::LValue(variable) = &value {
             let value_address = variable.address;
             if value_address == destination {
@@ -472,7 +478,7 @@ impl<'a> BrainCrabCompiler<'a> {
         self.copy_on_top_of_cells(result.into(), &[destination])
     }
 
-    pub fn mod_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+    pub fn mod_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
         if let Value::LValue(variable) = &value {
             let value_address = variable.address;
             if value_address == destination {
@@ -491,11 +497,11 @@ impl<'a> BrainCrabCompiler<'a> {
                 Value::new_borrow(destination, Type::U8),
                 value.borrow(),
             )?;
-            compiler.assign(predicate.address, new_predicate)
+            compiler.assign(MemorySlice::new(predicate.address, 1), new_predicate)
         })
     }
 
-    pub fn not_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+    pub fn not_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
         self.if_then_else(
             value,
             |compiler| {
@@ -505,7 +511,7 @@ impl<'a> BrainCrabCompiler<'a> {
             |compiler| compiler.add_assign(destination, 1.into()),
         )
     }
-    pub fn and_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+    pub fn and_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
         self.if_then_else(
             value,
             |_| Ok(()),
@@ -515,7 +521,7 @@ impl<'a> BrainCrabCompiler<'a> {
             },
         )
     }
-    pub fn or_assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+    pub fn or_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
         self.if_then_else(
             Value::new_borrow(destination, Type::Bool),
             |_| Ok(()),
@@ -525,24 +531,23 @@ impl<'a> BrainCrabCompiler<'a> {
         )
     }
 
-    pub fn assign(&mut self, destination: u16, value: Value) -> CompileResult<()> {
+    pub fn assign(&mut self, destination: MemorySlice, value: Value) -> CompileResult<'a, ()> {
         if let Value::LValue(variable) = &value {
-            let value_address = variable.address;
+            let value_address = variable.memory_slice();
             if value_address == destination {
                 // assigning to self is a no-op
                 return Ok(());
             }
         }
-        self.zero(MemorySlice::new(destination, 1));
-        self.add_assign(destination, value)?;
-        Ok(())
+        self.zero(destination);
+        self.add_slices(value, &[destination])
     }
 
     pub fn move_on_top_of_cells(
         &mut self,
         source: LValue,
         destinations: &[u16],
-    ) -> CompileResult<()> {
+    ) -> CompileResult<'a, ()> {
         self.loop_while(source.address, |compiler| {
             compiler.add_to(source.address, -1);
             for destination in destinations {
@@ -556,7 +561,7 @@ impl<'a> BrainCrabCompiler<'a> {
         &mut self,
         source: Value,
         destinations: &[u16],
-    ) -> CompileResult<()> {
+    ) -> CompileResult<'a, ()> {
         self.n_times(source, |compiler| {
             for destination in destinations {
                 compiler.add_to(*destination, 1);
@@ -566,7 +571,11 @@ impl<'a> BrainCrabCompiler<'a> {
         Ok(())
     }
 
-    pub fn add_slices(&mut self, source: Value, destinations: &[MemorySlice]) -> CompileResult<()> {
+    pub fn add_slices(
+        &mut self,
+        source: Value,
+        destinations: &[MemorySlice],
+    ) -> CompileResult<'a, ()> {
         //TODO check if destinations have correct sizes
         let data = source.data();
         for (offset, x) in data.into_iter().enumerate() {
@@ -578,10 +587,13 @@ impl<'a> BrainCrabCompiler<'a> {
                 Ok(())
             })?;
         }
+        if source.is_owned() {
+            self.zero(source.mutable()?.memory_slice());
+        }
         Ok(())
     }
 
-    pub fn print_string(&mut self, string: &str) -> CompileResult<()> {
+    pub fn print_string(&mut self, string: String) -> CompileResult<'a, ()> {
         if string.is_ascii() {
             let temp = self.new_owned(0)?;
             let mut current_value = 0u8;
@@ -596,13 +608,13 @@ impl<'a> BrainCrabCompiler<'a> {
 
             Ok(())
         } else {
-            Err(CompilerError::NonAsciiString(string.to_owned()))
+            Err(CompilerError::NonAsciiString(string.into()))
         }
     }
 
     // Expressions
 
-    fn eval_add(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_add(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         a.type_check(Type::U8)?;
         b.type_check(Type::U8)?;
         match (a, b) {
@@ -624,7 +636,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_mul(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_mul(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         a.type_check(Type::U8)?;
         b.type_check(Type::U8)?;
         match (a, b) {
@@ -646,7 +658,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_sub(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_sub(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         a.type_check(Type::U8)?;
         b.type_check(Type::U8)?;
         match (a, b) {
@@ -664,7 +676,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_div(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_div(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         a.type_check(Type::U8)?;
         b.type_check(Type::U8)?;
         match (a, b) {
@@ -682,7 +694,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_mod(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_mod(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         a.type_check(Type::U8)?;
         b.type_check(Type::U8)?;
         match (a, b) {
@@ -700,7 +712,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_not(&mut self, inner: Value) -> CompileResult<Value> {
+    fn eval_not(&mut self, inner: Value) -> CompileResult<'a, Value> {
         inner.type_check(Type::Bool)?;
         match inner {
             Value::Constant(value) => {
@@ -726,7 +738,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_and(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_and(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         a.type_check(Type::Bool)?;
         b.type_check(Type::Bool)?;
         match (a, b) {
@@ -752,7 +764,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_or(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_or(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         a.type_check(Type::Bool)?;
         b.type_check(Type::Bool)?;
         match (a, b) {
@@ -778,7 +790,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_not_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_not_equals(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         a.type_check(Type::U8)?;
         b.type_check(Type::U8)?;
         match (a, b) {
@@ -802,12 +814,12 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_equals(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         let not_equals = self.eval_not_equals(a, b)?;
         self.eval_not(not_equals)
     }
 
-    fn eval_less_than_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_less_than_equals(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         match (a, b) {
             (Value::Constant(a), Value::Constant(b)) => {
                 let a = a.get_u8()?;
@@ -849,21 +861,21 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    fn eval_greater_than_equals(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_greater_than_equals(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         self.eval_less_than_equals(b, a)
     }
 
-    fn eval_less_than(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_less_than(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         let opposite = self.eval_greater_than_equals(a, b)?;
         self.eval_not(opposite)
     }
 
-    fn eval_greater_than(&mut self, a: Value, b: Value) -> CompileResult<Value> {
+    fn eval_greater_than(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
         let opposite = self.eval_less_than_equals(a, b)?;
         self.eval_not(opposite)
     }
 
-    fn eval_const_index(array: &Value, index: u8) -> CompileResult<Value> {
+    fn eval_const_index(array: &Value, index: u8) -> CompileResult<'a, Value> {
         // Do bounds checks
         match array {
             Value::Constant(ConstantValue::Array(array)) => {
@@ -877,12 +889,15 @@ impl<'a> BrainCrabCompiler<'a> {
                     address_pool: None,
                 }
                 .into()),
-                _ => Err(CompilerError::NotAnArray),
+                _ => Err(CompilerError::NotAnArray(array.value_type.clone())),
             },
-            _ => Err(CompilerError::NotAnArray),
+            _ => Err(CompilerError::NotAnArray(array.value_type()?)),
         }
     }
-    fn eval_const_accessors(source: Value, accessors: &[Accessor]) -> CompileResult<Option<Value>> {
+    fn eval_const_accessors(
+        source: Value,
+        accessors: &[Accessor],
+    ) -> CompileResult<'a, Option<Value>> {
         match accessors {
             [] => Ok(Some(source)),
             [Accessor::Index(Value::Constant(index)), tail @ ..] => {
@@ -894,45 +909,55 @@ impl<'a> BrainCrabCompiler<'a> {
     }
     fn eval_accessors(
         &mut self,
-        source: Value,
-        accessors: &[Accessor],
-        f: &impl Fn(&mut Self, Value) -> CompileResult<()>,
-    ) -> CompileResult<()> {
-        match accessors {
-            [] => f(self, source),
-            [accessor, tail @ ..] => match accessor {
-                Accessor::Index(index) => match index {
-                    Value::Constant(index) => {
-                        let indexed_value = Self::eval_const_index(&source, index.get_u8()?)?;
-                        self.eval_accessors(indexed_value, tail, f)
-                    }
-                    Value::LValue(index) => {
-                        if let Type::Array { len, .. } = source.value_type()? {
-                            for i in 0..len {
-                                let array = source.borrow();
-                                self.scoped(|compiler| {
-                                    let predicate =
-                                        compiler.eval_equals(i.into(), index.borrow().into())?;
-                                    compiler.if_then(predicate, |compiler| {
-                                        let indexed_value = Self::eval_const_index(&array, i)?;
-                                        compiler.eval_accessors(indexed_value, tail, f)
-                                    })
-                                })?;
-                            }
-                            Ok(())
-                        } else {
-                            Err(CompilerError::NotAnArray)
+        accessed_value: AccessedValue,
+        f: impl Fn(&mut Self, Value) -> CompileResult<'a, ()>,
+    ) -> CompileResult<'a, ()> {
+        fn eval_accessors_impl<'a>(
+            compiler: &mut BrainCrabCompiler<'a>,
+            source: Value,
+            accessors: &[Accessor],
+            f: &impl Fn(&mut BrainCrabCompiler<'a>, Value) -> CompileResult<'a, ()>,
+        ) -> CompileResult<'a, ()> {
+            match accessors {
+                [] => f(compiler, source),
+                [accessor, tail @ ..] => match accessor {
+                    Accessor::Index(index) => match index {
+                        Value::Constant(index) => {
+                            let indexed_value =
+                                BrainCrabCompiler::eval_const_index(&source, index.get_u8()?)?;
+                            eval_accessors_impl(compiler, indexed_value, tail, f)
                         }
-                    }
+                        Value::LValue(index) => {
+                            let array_type = source.value_type()?;
+                            if let Type::Array { len, .. } = array_type {
+                                for i in 0..len {
+                                    let array = source.borrow();
+                                    compiler.scoped(|compiler| {
+                                        let predicate = compiler
+                                            .eval_equals(i.into(), index.borrow().into())?;
+                                        compiler.if_then(predicate, |compiler| {
+                                            let indexed_value =
+                                                BrainCrabCompiler::eval_const_index(&array, i)?;
+                                            eval_accessors_impl(compiler, indexed_value, tail, f)
+                                        })
+                                    })?;
+                                }
+                                Ok(())
+                            } else {
+                                Err(CompilerError::NotAnArray(array_type))
+                            }
+                        }
+                    },
                 },
-            },
+            }
         }
+        eval_accessors_impl(self, accessed_value.source, &accessed_value.accessors, &f)
     }
 
     fn eval_lvalue_expression(
         &mut self,
         expression: LValueExpression<'a>,
-    ) -> CompileResult<AccessedValue> {
+    ) -> CompileResult<'a, AccessedValue> {
         match expression {
             LValueExpression::Variable(name) => {
                 self.borrow_immutable(name).map(AccessedValue::unit)
@@ -948,7 +973,7 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<Value> {
+    pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<'a, Value> {
         match expression {
             Expression::Constant(constant_value) => Ok(constant_value.into()),
             Expression::LValue(expression) => {
@@ -961,11 +986,9 @@ impl<'a> BrainCrabCompiler<'a> {
                 } else {
                     let accessed_value_type = accessed_value.value_type()?;
                     let temp = self.allocate(accessed_value_type)?;
-                    self.eval_accessors(
-                        accessed_value.source,
-                        &accessed_value.accessors,
-                        &|compiler, value| compiler.copy_on_top_of_cells(value, &[temp.address]),
-                    )?;
+                    self.eval_accessors(accessed_value, |compiler, value| {
+                        compiler.copy_on_top_of_cells(value, &[temp.address])
+                    })?;
                     Ok(temp.into())
                 }
             }
@@ -1041,11 +1064,11 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn loop_while_expression<F: FnOnce(&mut Self) -> CompileResult<()>>(
+    pub fn loop_while_expression<F: FnOnce(&mut Self) -> CompileResult<'a, ()>>(
         &mut self,
         predicate: Expression<'a>,
         body: F,
-    ) -> CompileResult<()> {
+    ) -> CompileResult<'a, ()> {
         match predicate {
             Expression::Constant(predicate) => {
                 if predicate.get_bool()? {
@@ -1079,18 +1102,19 @@ impl<'a> BrainCrabCompiler<'a> {
                 self.loop_while(temp.address, |compiler| {
                     body(compiler)?;
                     let predicate_value = compiler.eval_expression(predicate)?;
-                    compiler.assign(temp.address, predicate_value)?;
+                    compiler.assign(temp.memory_slice(), predicate_value)?;
                     Ok(())
                 })
             }
         }
     }
 
-    fn for_each<F>(&mut self, array: Value, function: F) -> CompileResult<()>
+    fn for_each<F>(&mut self, array: Value, function: F) -> CompileResult<'a, ()>
     where
-        F: Fn(&mut Self, Value) -> CompileResult<()>,
+        F: Fn(&mut Self, Value) -> CompileResult<'a, ()>,
     {
-        if let Type::Array { len, .. } = array.value_type()? {
+        let array_type = array.value_type()?;
+        if let Type::Array { len, .. } = array_type {
             for i in 0..len {
                 self.scoped(|compiler| {
                     let element = Self::eval_const_index(&array.borrow(), i)?;
@@ -1099,7 +1123,7 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             Ok(())
         } else {
-            Err(CompilerError::NotAnArray)
+            Err(CompilerError::NotAnArray(array_type))
         }
     }
 
@@ -1108,7 +1132,7 @@ impl<'a> BrainCrabCompiler<'a> {
         loop_variable: &'a str,
         array_expression: Expression<'a>,
         body: Vec<Instruction<'a>>,
-    ) -> CompileResult<()> {
+    ) -> CompileResult<'a, ()> {
         let array = self.eval_expression(array_expression)?;
 
         self.for_each(array, |compiler, value| {
@@ -1120,7 +1144,10 @@ impl<'a> BrainCrabCompiler<'a> {
 
 /// Instruction compiling
 impl<'a> BrainCrabCompiler<'a> {
-    fn compile_instructions(&mut self, instructions: Vec<Instruction<'a>>) -> CompileResult<()> {
+    fn compile_instructions(
+        &mut self,
+        instructions: Vec<Instruction<'a>>,
+    ) -> CompileResult<'a, ()> {
         // TODO, make this work with a slice of instructions
         for instruction in instructions {
             match instruction {
@@ -1137,9 +1164,11 @@ impl<'a> BrainCrabCompiler<'a> {
                     self.new_variable(name, value, mutable)?;
                 }
                 Instruction::Assign { name, value } => {
-                    let destination = self.borrow_mutable(name)?;
+                    let destination = self.eval_lvalue_expression(name)?;
                     let value = self.eval_expression(value)?;
-                    self.assign(destination.address, value)?;
+                    self.eval_accessors(destination, |compiler, destination| {
+                        compiler.assign(destination.mutable()?.memory_slice(), value.borrow())
+                    })?;
                 }
                 Instruction::AddAssign { name, value } => {
                     let destination = self.borrow_mutable(name)?;
@@ -1160,7 +1189,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     self.read(destination.address);
                 }
                 Instruction::Print { string } => {
-                    self.print_string(&string)?;
+                    self.print_string(string)?;
                 }
                 Instruction::Scope { body } => {
                     self.scoped(|compiler| compiler.compile_instructions(body))?;

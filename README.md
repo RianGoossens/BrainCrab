@@ -16,6 +16,12 @@ Here are my upcoming tasks.
   - optimized could do the address optimization and others
 - Better compiler errors by storing program pointers at parse time
 - Language documentation
+- Better memory management
+  - Mark edited memory as dirty
+  - Zeroing memory makes it clean
+  - Have a special function to explicitly mark memory as zero
+  - Do not clean up when freeing
+  - When allocating memory, check if it's dirty, and zero if so.
 
 ### Braincrab Language TODO
 - Types? (u8, bool, structs, arrays...)

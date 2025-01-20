@@ -36,7 +36,7 @@ impl ConstantValue {
         result
     }
 
-    pub fn value_type(&self) -> CompileResult<Type> {
+    pub fn value_type<'a>(&self) -> CompileResult<'a, Type> {
         match self {
             ConstantValue::U8(_) => Ok(Type::U8),
             ConstantValue::Bool(_) => Ok(Type::Bool),
@@ -63,7 +63,7 @@ impl ConstantValue {
         }
     }
 
-    pub fn get_u8(&self) -> CompileResult<u8> {
+    pub fn get_u8<'a>(&self) -> CompileResult<'a, u8> {
         match self {
             ConstantValue::U8(value) => Ok(*value),
             _ => Err(CompilerError::TypeError {
@@ -73,7 +73,7 @@ impl ConstantValue {
         }
     }
 
-    pub fn get_bool(&self) -> CompileResult<bool> {
+    pub fn get_bool<'a>(&self) -> CompileResult<'a, bool> {
         match self {
             ConstantValue::Bool(value) => Ok(*value),
             _ => Err(CompilerError::TypeError {

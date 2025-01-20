@@ -110,7 +110,7 @@ pub enum Instruction<'a> {
         value: Expression<'a>,
     },
     Assign {
-        name: &'a str,
+        name: LValueExpression<'a>,
         value: Expression<'a>,
     },
     AddAssign {

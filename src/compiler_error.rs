@@ -1,14 +1,16 @@
-use crate::types::Type;
+use std::borrow::Cow;
+
+use crate::{types::Type, value::Value};
 
 #[derive(Debug)]
-pub enum CompilerError {
-    UndefinedVariable(String),
-    AlreadyDefinedVariable(String),
+pub enum CompilerError<'a> {
+    UndefinedVariable(&'a str),
+    AlreadyDefinedVariable(&'a str),
     NoFreeAddresses,
     UnclosedLoop,
-    NonAsciiString(String),
-    MutableBorrowOfImmutableVariable(String),
-    CantRegisterBorrowedValues(String),
+    NonAsciiString(Cow<'a, str>),
+    MutableBorrowOfImmutableVariable(Value),
+    CantRegisterBorrowedValues(&'a str),
     TypeError {
         expected: Type,
         actual: Type,
@@ -22,7 +24,7 @@ pub enum CompilerError {
         index: u16,
         actual: Type,
     },
-    NotAnArray,
+    NotAnArray(Type),
 }
 
-pub type CompileResult<A> = Result<A, CompilerError>;
+pub type CompileResult<'a, A> = Result<A, CompilerError<'a>>;
