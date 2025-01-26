@@ -5,6 +5,7 @@ pub mod cli;
 pub mod compiler;
 pub mod compiler_error;
 pub mod constant_value;
+pub mod new_abf;
 pub mod parser;
 mod types;
 mod value;
