@@ -1,29 +1,24 @@
 use braincrab::new_abf::*;
 
 fn main() {
-    let mut program = ABFProgram::new(vec![
-        ABFInstruction::New(0, 1),
-        ABFInstruction::Read(1),
-        ABFInstruction::Add(1, -2),
-        ABFInstruction::Read(3),
-        ABFInstruction::While(
-            1,
-            ABFProgram::new(vec![
-                ABFInstruction::New(2, 1),
-                ABFInstruction::Add(1, -1),
-                ABFInstruction::While(
-                    2,
-                    ABFProgram::new(vec![
-                        ABFInstruction::Add(0, 1),
-                        ABFInstruction::Add(2, -1),
-                        ABFInstruction::Write(3),
-                    ]),
-                ),
-            ]),
-        ),
-        ABFInstruction::Write(0),
-        ABFInstruction::Write(1),
-    ]);
+    let mut program_builder = ABFProgramBuilder::new();
+    let a = program_builder.new_address(1);
+    let b = program_builder.read();
+    program_builder.add(b, -2);
+    let d = program_builder.read();
+    program_builder.while_loop(b, |program_builder| {
+        let c = program_builder.new_address(1);
+        program_builder.add(b, -1);
+        program_builder.while_loop(c, |program_builder: &mut ABFProgramBuilder| {
+            program_builder.add(a, 1);
+            program_builder.add(c, -1);
+            program_builder.write(d);
+        });
+    });
+    program_builder.write(a);
+    program_builder.write(b);
+
+    let mut program = program_builder.program();
     println!("{:}", program);
     ABFCompiler::optimize_frees(&mut program);
     println!("Adding frees:\n{:}", program);

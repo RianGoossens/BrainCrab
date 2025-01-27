@@ -157,6 +157,7 @@ impl ABFCell {
 #[derive(Debug, Clone, Default)]
 pub struct ABFState {
     pub values: Vec<ABFCell>,
+    pub last_address: u16,
 }
 
 impl ABFState {
@@ -169,7 +170,36 @@ impl ABFState {
                 };
                 30000
             ],
+            last_address: 0,
         }
+    }
+
+    pub fn find_address(&mut self, expected: Option<u8>) -> u16 {
+        let mut best_address = u16::MAX;
+        let mut best_distance = u16::MAX;
+        for (i, cell) in self.values.iter().enumerate() {
+            if !cell.used {
+                let address_distance = self.last_address.abs_diff(i as u16);
+                let value_distance = if let Some(expected) = expected {
+                    if let ABFValue::CompileTime(actual) = cell.value {
+                        actual.abs_diff(expected)
+                    } else {
+                        255
+                    }
+                } else {
+                    0
+                };
+                let distance = address_distance + value_distance as u16;
+                if distance < best_distance {
+                    best_address = i as u16;
+                    best_distance = distance;
+                }
+                if best_distance == 0 {
+                    break;
+                }
+            }
+        }
+        best_address
     }
 
     pub fn get_cell(&mut self, address: u16) -> ABFCell {
@@ -193,44 +223,78 @@ impl ABFState {
 }
 
 pub struct ABFProgramBuilder {
-    program: ABFProgram,
+    program_stack: Vec<ABFProgram>,
     state: ABFState,
 }
 
 impl ABFProgramBuilder {
     pub fn new() -> Self {
         Self {
-            program: ABFProgram::new(vec![]),
+            program_stack: vec![ABFProgram::new(vec![])],
             state: ABFState::new(),
         }
     }
 
+    pub fn program(mut self) -> ABFProgram {
+        assert!(self.program_stack.len() == 1);
+        self.program_stack.pop().unwrap()
+    }
+
     fn add_instruction(&mut self, instruction: ABFInstruction) {
-        self.program.add_instruction(instruction);
+        self.program_stack
+            .last_mut()
+            .unwrap()
+            .add_instruction(instruction);
     }
 
     pub fn new_address(&mut self, value: u8) -> u16 {
-        todo!()
+        let address = self.state.find_address(Some(value));
+        self.state.set_value(address, value);
+        self.add_instruction(ABFInstruction::New(address, value));
+        address
     }
 
     pub fn read(&mut self) -> u16 {
-        todo!()
+        let address = self.state.find_address(None);
+        self.state.set_value(address, ABFValue::Runtime);
+        self.add_instruction(ABFInstruction::Read(address));
+        address
     }
 
     pub fn free(&mut self, address: u16) {
-        todo!()
+        self.state.free(address);
+        // Since we are tracking state ourselves, no need to add any frees anymore?
+        self.add_instruction(ABFInstruction::Free(address));
     }
 
     pub fn write(&mut self, address: u16) {
-        todo!()
+        self.add_instruction(ABFInstruction::Write(address));
     }
 
     pub fn add(&mut self, address: u16, amount: i8) {
-        todo!()
+        let cell = self.state.get_cell_mut(address);
+        assert!(cell.used);
+        if let ABFValue::CompileTime(x) = &mut cell.value {
+            *x = x.wrapping_add(amount as u8);
+        }
+        self.add_instruction(ABFInstruction::Add(address, amount));
     }
 
-    pub fn while_loop(&mut self, address: u16, body: impl Fn(&mut ABFProgramBuilder)) {
-        todo!()
+    pub fn while_loop(&mut self, address: u16, body_function: impl Fn(&mut ABFProgramBuilder)) {
+        self.program_stack.push(ABFProgram::new(vec![]));
+        body_function(self);
+        let body = self.program_stack.pop().unwrap();
+
+        // Every value that was modified inside the while loop is now unknown at compile time
+        for modified_address in body.modified_addresses() {
+            let cell = self.state.get_cell_mut(modified_address);
+            cell.value = ABFValue::Runtime;
+        }
+
+        // After a loop the predicate address is always zero
+        self.state.set_value(address, 0);
+
+        self.add_instruction(ABFInstruction::While(address, body));
     }
 }
 
