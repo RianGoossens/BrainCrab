@@ -35,5 +35,13 @@ Here are my upcoming tasks.
 - Comments
 - Modules
 
+### New ABF TODO
+- Compile to BF
+- Get rid of `WriteConst`?
+- Optimize addresses
+  - This is hard, at `New` and `Read` we need to find unused addresses that are optimal
+  - The hard part are `New`s inside While loops.
+- Document the concept somewhere
+
 ## Bugs
 - Filter parser should somehow prioritize it's errors from the inner parser
