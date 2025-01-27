@@ -149,8 +149,11 @@ pub struct ABFCell {
 }
 
 impl ABFCell {
-    pub fn new(value: ABFValue, used: bool) -> Self {
-        Self { value, used }
+    pub fn new(value: impl Into<ABFValue>, used: bool) -> Self {
+        Self {
+            value: value.into(),
+            used,
+        }
     }
 }
 
@@ -163,13 +166,7 @@ pub struct ABFState {
 impl ABFState {
     pub fn new() -> Self {
         Self {
-            values: vec![
-                ABFCell {
-                    value: 0.into(),
-                    used: false
-                };
-                30000
-            ],
+            values: vec![ABFCell::new(0, false); 30000],
             last_address: 0,
         }
     }
@@ -214,6 +211,7 @@ impl ABFState {
         let cell = self.get_cell_mut(address);
         cell.value = value.into();
         cell.used = true;
+        self.last_address = address;
     }
 
     pub fn free(&mut self, address: u16) {
@@ -280,7 +278,7 @@ impl ABFProgramBuilder {
         self.add_instruction(ABFInstruction::Add(address, amount));
     }
 
-    pub fn while_loop(&mut self, address: u16, body_function: impl Fn(&mut ABFProgramBuilder)) {
+    pub fn while_loop(&mut self, address: u16, body_function: impl FnOnce(&mut ABFProgramBuilder)) {
         self.program_stack.push(ABFProgram::new(vec![]));
         body_function(self);
         let body = self.program_stack.pop().unwrap();
