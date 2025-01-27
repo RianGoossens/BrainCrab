@@ -188,19 +188,6 @@ impl ABFState {
         let cell = self.get_cell_mut(address);
         cell.used = false;
     }
-
-    pub fn add_new_value(&mut self, address: u16) {
-        let cell = self.get_cell_mut(address);
-        assert!(matches!(cell.value, ABFValue::CompileTime(0)));
-        assert!(!cell.used);
-        cell.used = true;
-    }
-
-    pub fn read(&mut self, address: u16) {
-        let cell = self.get_cell_mut(address);
-        cell.used = true;
-        cell.value = ABFValue::Runtime;
-    }
 }
 
 pub struct ABFCompiler;
@@ -326,8 +313,9 @@ impl ABFCompiler {
                     } else {
                         let mut new_body = ABFProgram::new(vec![]);
 
+                        // Since we don't know how this loop will run, any modified addresses
+                        // in this loop become unknown
                         let modified_addresses = body.modified_addresses();
-
                         for modified_address in &modified_addresses {
                             let cell = state.get_cell_mut(*modified_address);
                             if cell.used {
@@ -341,6 +329,9 @@ impl ABFCompiler {
 
                         Self::optimize_impl(body, state, &mut new_body);
 
+                        // We need to make sure that all modified addresses are still marked as
+                        // runtime after the loop, since there is no way to guarantee if the loop
+                        // will even run.
                         for modified_address in modified_addresses {
                             let cell = state.get_cell_mut(modified_address);
                             if cell.used {
