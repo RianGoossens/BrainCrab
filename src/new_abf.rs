@@ -161,7 +161,15 @@ pub struct ABFState {
 
 impl ABFState {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            values: vec![
+                ABFCell {
+                    value: 0.into(),
+                    used: false
+                };
+                30000
+            ],
+        }
     }
 
     pub fn get_cell(&mut self, address: u16) -> ABFCell {
@@ -169,12 +177,6 @@ impl ABFState {
     }
 
     pub fn get_cell_mut(&mut self, address: u16) -> &mut ABFCell {
-        if address as usize >= self.values.len() {
-            for _ in self.values.len()..=address as usize {
-                self.values
-                    .push(ABFCell::new(ABFValue::CompileTime(0), false));
-            }
-        }
         self.values.get_mut(address as usize).unwrap()
     }
 
@@ -187,6 +189,54 @@ impl ABFState {
     pub fn free(&mut self, address: u16) {
         let cell = self.get_cell_mut(address);
         cell.used = false;
+    }
+}
+
+pub struct ABFProgramBuilder {
+    program: ABFProgram,
+    state: ABFState,
+}
+
+impl ABFProgramBuilder {
+    pub fn new() -> Self {
+        Self {
+            program: ABFProgram::new(vec![]),
+            state: ABFState::new(),
+        }
+    }
+
+    fn add_instruction(&mut self, instruction: ABFInstruction) {
+        self.program.add_instruction(instruction);
+    }
+
+    pub fn new_address(&mut self, value: u8) -> u16 {
+        todo!()
+    }
+
+    pub fn read(&mut self) -> u16 {
+        todo!()
+    }
+
+    pub fn free(&mut self, address: u16) {
+        todo!()
+    }
+
+    pub fn write(&mut self, address: u16) {
+        todo!()
+    }
+
+    pub fn add(&mut self, address: u16, amount: i8) {
+        todo!()
+    }
+
+    pub fn while_loop(&mut self, address: u16, body: impl Fn(&mut ABFProgramBuilder)) {
+        todo!()
+    }
+}
+
+impl Default for ABFProgramBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
