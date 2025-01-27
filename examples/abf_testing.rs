@@ -1,7 +1,7 @@
 use braincrab::new_abf::*;
 
 fn main() {
-    let program = ABFProgram::new(vec![
+    let mut program = ABFProgram::new(vec![
         ABFInstruction::New(0, 1),
         ABFInstruction::Read(1),
         ABFInstruction::Add(1, -2),
@@ -25,6 +25,8 @@ fn main() {
         ABFInstruction::Write(1),
     ]);
     println!("{:}", program);
-    let program = ABFOptimizer::optimize(&program);
+    ABFCompiler::optimize_frees(&mut program);
+    println!("Adding frees:\n{:}", program);
+    let program = ABFCompiler::optimize(&program);
     println!("Simplifying:\n{:}", program);
 }

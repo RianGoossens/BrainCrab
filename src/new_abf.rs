@@ -1,4 +1,7 @@
-use std::{collections::BTreeSet, fmt::Display, mem::swap};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
 #[derive(Debug, Clone)]
 pub enum ABFInstruction {
@@ -45,13 +48,6 @@ impl Display for ABFInstruction {
 }
 
 impl ABFInstruction {
-    pub fn is_compiletime(&self) -> bool {
-        match self {
-            ABFInstruction::Read(_) => false,
-            ABFInstruction::While(_, body) => body.is_compiletime(),
-            _ => true,
-        }
-    }
     pub fn relevant_address(&self) -> Option<u16> {
         match self {
             ABFInstruction::New(x, _) => Some(*x),
@@ -65,16 +61,31 @@ impl ABFInstruction {
     }
     fn collect_modified_addresses(&self, addresses: &mut BTreeSet<u16>) {
         match self {
-            ABFInstruction::Read(address) => {
-                addresses.insert(*address);
-            }
-            ABFInstruction::Add(address, _) => {
+            ABFInstruction::Read(address) | ABFInstruction::Add(address, _) => {
                 addresses.insert(*address);
             }
             ABFInstruction::While(address, body) => {
                 addresses.insert(*address);
                 for instruction in &body.instructions {
                     instruction.collect_modified_addresses(addresses);
+                }
+            }
+            _ => {}
+        };
+    }
+    fn collect_used_addresses(&self, addresses: &mut BTreeSet<u16>) {
+        match self {
+            ABFInstruction::New(address, _)
+            | ABFInstruction::Read(address)
+            | ABFInstruction::Add(address, _)
+            | ABFInstruction::Free(address)
+            | ABFInstruction::Write(address) => {
+                addresses.insert(*address);
+            }
+            ABFInstruction::While(address, body) => {
+                addresses.insert(*address);
+                for instruction in &body.instructions {
+                    instruction.collect_used_addresses(addresses);
                 }
             }
             _ => {}
@@ -103,45 +114,19 @@ impl ABFProgram {
     pub fn add_instruction(&mut self, instruction: ABFInstruction) {
         self.instructions.push(instruction);
     }
+    pub fn used_addresses(&self) -> BTreeSet<u16> {
+        let mut result = BTreeSet::new();
+        for instruction in &self.instructions {
+            instruction.collect_used_addresses(&mut result);
+        }
+        result
+    }
     pub fn modified_addresses(&self) -> BTreeSet<u16> {
         let mut result = BTreeSet::new();
         for instruction in &self.instructions {
             instruction.collect_modified_addresses(&mut result);
         }
         result
-    }
-    pub fn is_compiletime(&self) -> bool {
-        for instruction in &self.instructions {
-            if !instruction.is_compiletime() {
-                return false;
-            }
-        }
-        true
-    }
-    pub fn add_frees(&mut self) {
-        fn add_frees_impl(program: &mut ABFProgram, encountered_addresses: &mut BTreeSet<u16>) {
-            let mut old_instructions = vec![];
-            swap(&mut program.instructions, &mut old_instructions);
-
-            for mut instruction in old_instructions.into_iter().rev() {
-                if let Some(address) = instruction.relevant_address() {
-                    if encountered_addresses.insert(address)
-                        && !matches!(instruction, ABFInstruction::Free(_))
-                    {
-                        program.instructions.push(ABFInstruction::Free(address));
-                    }
-                    if let ABFInstruction::While(_, body) = &mut instruction {
-                        add_frees_impl(body, encountered_addresses);
-                    }
-                }
-                program.instructions.push(instruction);
-            }
-
-            program.instructions.reverse();
-        }
-
-        let mut encountered_addresses = BTreeSet::new();
-        add_frees_impl(self, &mut encountered_addresses);
     }
 }
 
@@ -218,9 +203,57 @@ impl ABFState {
     }
 }
 
-pub struct ABFOptimizer;
+pub struct ABFCompiler;
 
-impl ABFOptimizer {
+impl ABFCompiler {
+    pub fn optimize_frees(program: &mut ABFProgram) {
+        // First clear out any existing frees, we can do better.
+        program
+            .instructions
+            .retain(|x| !matches!(x, &ABFInstruction::Free(_)));
+
+        // Now we detect usage of all declared addresses. Undeclared addresses are handled by parent scopes.
+        // We also optimize bodies of While loops here.
+        let mut last_address_usage = BTreeMap::new();
+
+        for (index, instruction) in program.instructions.iter_mut().enumerate() {
+            match instruction {
+                ABFInstruction::New(address, _) | ABFInstruction::Read(address) => {
+                    last_address_usage.insert(*address, index);
+                }
+                ABFInstruction::Write(address) | ABFInstruction::Add(address, _) => {
+                    if last_address_usage.contains_key(address) {
+                        last_address_usage.insert(*address, index);
+                    }
+                }
+                ABFInstruction::Free(_) => panic!("There should not be any frees at this point."),
+                ABFInstruction::WriteConst(_) => {}
+                ABFInstruction::While(address, body) => {
+                    Self::optimize_frees(body);
+                    if last_address_usage.contains_key(address) {
+                        last_address_usage.insert(*address, index);
+                    }
+                    for address in body.used_addresses() {
+                        if last_address_usage.contains_key(&address) {
+                            last_address_usage.insert(address, index);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort last address usages by usage, from most recent to least recent
+        let mut last_address_usage: Vec<_> = last_address_usage.into_iter().collect();
+        last_address_usage.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Insert frees at their optimal location
+        for (address, last_usage) in last_address_usage.into_iter() {
+            program
+                .instructions
+                .insert(last_usage + 1, ABFInstruction::Free(address));
+        }
+    }
+
     fn optimize_impl(abf: &ABFProgram, state: &mut ABFState, output: &mut ABFProgram) {
         for instruction in &abf.instructions {
             match instruction {
@@ -293,17 +326,27 @@ impl ABFOptimizer {
                     } else {
                         let mut new_body = ABFProgram::new(vec![]);
 
-                        for modified_address in body.modified_addresses() {
-                            let cell = state.get_cell_mut(modified_address);
+                        let modified_addresses = body.modified_addresses();
+
+                        for modified_address in &modified_addresses {
+                            let cell = state.get_cell_mut(*modified_address);
                             if cell.used {
                                 if let ABFValue::CompileTime(x) = cell.value {
                                     output
-                                        .add_instruction(ABFInstruction::New(modified_address, x));
+                                        .add_instruction(ABFInstruction::New(*modified_address, x));
                                 }
                                 cell.value = ABFValue::Runtime;
                             }
                         }
+
                         Self::optimize_impl(body, state, &mut new_body);
+
+                        for modified_address in modified_addresses {
+                            let cell = state.get_cell_mut(modified_address);
+                            if cell.used {
+                                cell.value = ABFValue::Runtime;
+                            }
+                        }
                         output.add_instruction(ABFInstruction::While(*address, new_body));
                     }
                     state.set_value(*address, 0);
