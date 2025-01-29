@@ -1,4 +1,4 @@
-use braincrab::new_abf::*;
+use braincrab::abf::*;
 
 fn main() {
     let mut program_builder = ABFProgramBuilder::new();

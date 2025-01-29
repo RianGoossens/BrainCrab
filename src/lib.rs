@@ -1,3 +1,4 @@
+pub mod abf;
 mod absolute_bf;
 mod allocator;
 pub mod ast;
@@ -5,7 +6,6 @@ pub mod cli;
 pub mod compiler;
 pub mod compiler_error;
 pub mod constant_value;
-pub mod new_abf;
 pub mod parser;
 mod types;
 mod value;

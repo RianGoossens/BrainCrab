@@ -3,6 +3,8 @@ use std::{
     fmt::Display,
 };
 
+use bf_core::{BFProgram, BFTree};
+
 #[derive(Debug, Clone)]
 pub enum ABFInstruction {
     New(u16, u8),
@@ -524,5 +526,86 @@ impl ABFCompiler {
         let mut program_builder = ABFProgramBuilder::new();
         Self::optimize_abf_impl(program, &mut state, &mut address_map, &mut program_builder);
         program_builder.program()
+    }
+
+    pub fn compile_to_bf(program: &ABFProgram) -> BFProgram {
+        fn compile_impl(
+            program: &ABFProgram,
+            state: &mut ABFState,
+            address_map: &mut BTreeMap<u16, u16>,
+            current_location: &mut u16,
+            in_loop: bool,
+        ) -> BFProgram {
+            let mut output = BFProgram::new();
+
+            for instruction in &program.instructions {
+                match instruction {
+                    ABFInstruction::New(address, value) => {
+                        let expected_value = if in_loop { None } else { Some(*value) };
+                        let bf_address = state.find_address(expected_value);
+                        address_map.insert(*address, bf_address);
+
+                        let offset = bf_address as i16 - *current_location as i16;
+                        output.push_instruction(BFTree::Move(offset));
+                        if !in_loop {
+                            let current_value = state.get_cell(bf_address).value;
+                            if let ABFValue::CompileTime(current_value) = current_value {
+                                let value_offset = value.wrapping_sub(current_value);
+                                output.push_instruction(BFTree::Add(value_offset));
+                            } else {
+                                output.push_instruction(BFTree::Loop(vec![BFTree::Add(255)]));
+                            }
+                        } else {
+                            output.push_instruction(BFTree::Loop(vec![BFTree::Add(255)]));
+                        }
+                        *current_location = bf_address;
+                        state.set_value(bf_address, *value);
+                    }
+                    ABFInstruction::Read(address) => {
+                        let bf_address = state.find_address(None);
+                        address_map.insert(*address, bf_address);
+
+                        let offset = bf_address as i16 - *current_location as i16;
+                        output.push_instruction(BFTree::Move(offset));
+                        output.push_instruction(BFTree::Read);
+                        *current_location = bf_address;
+                        state.set_value(bf_address, ABFValue::Runtime);
+                    }
+                    ABFInstruction::Free(address) => {
+                        let bf_address = *address_map.get(address).unwrap();
+                        state.free(bf_address);
+                    }
+                    ABFInstruction::Write(address) => {
+                        let bf_address = *address_map.get(address).unwrap();
+                        let offset = bf_address as i16 - *current_location as i16;
+                        output.push_instruction(BFTree::Move(offset));
+                        output.push_instruction(BFTree::Write);
+                        *current_location = bf_address;
+                        state.last_address = bf_address;
+                    }
+                    ABFInstruction::Add(address, amount) => {
+                        let bf_address = *address_map.get(address).unwrap();
+                        let offset = bf_address as i16 - *current_location as i16;
+                        output.push_instruction(BFTree::Move(offset));
+                        output.push_instruction(BFTree::Add(*amount as u8));
+                        *current_location = bf_address;
+                        state.last_address = bf_address;
+                    }
+                    ABFInstruction::While(address, body) => {
+                        let bf_address = *address_map.get(address).unwrap();
+                        let offset = bf_address as i16 - *current_location as i16;
+                        output.push_instruction(BFTree::Move(offset));
+                        todo!();
+                        *current_location = bf_address;
+                        state.last_address = bf_address;
+                    }
+                }
+            }
+
+            output
+        }
+        let mut state = ABFState::new();
+        let mut address_map = BTreeMap::new();
+        compile_impl(program, &mut state, &mut address_map, &mut 0, false)
     }
 }
