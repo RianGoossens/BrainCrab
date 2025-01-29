@@ -2,26 +2,33 @@ use braincrab::new_abf::*;
 
 fn main() {
     let mut program_builder = ABFProgramBuilder::new();
+    let zero = program_builder.new_address(0);
+    program_builder.write(zero);
     let a = program_builder.new_address(1);
     let b = program_builder.read();
     program_builder.add(b, -2);
     let d = program_builder.read();
+    let e = program_builder.new_address(15);
     program_builder.while_loop(b, |program_builder| {
         let c = program_builder.new_address(1);
         program_builder.add(b, -1);
         program_builder.while_loop(c, |program_builder: &mut ABFProgramBuilder| {
             program_builder.add(a, 1);
             program_builder.add(c, -1);
+            program_builder.add(e, 20);
             program_builder.write(d);
         });
     });
     program_builder.write(a);
     program_builder.write(b);
+    let zero = program_builder.new_address(0);
+    program_builder.write(zero);
 
-    let mut program = program_builder.program();
+    let program = program_builder.program();
     println!("{:}", program);
-    ABFCompiler::optimize_frees(&mut program);
-    println!("Adding frees:\n{:}", program);
-    let program = ABFCompiler::optimize(&program);
+    let mut program = ABFCompiler::optimize_abf(&program);
     println!("Simplifying:\n{:}", program);
+    program.clear_unused_variables();
+    program.optimize_frees();
+    println!("Adding frees and removing unused variables:\n{:}", program);
 }
