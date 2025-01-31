@@ -46,16 +46,6 @@ impl Display for ABFInstruction {
 }
 
 impl ABFInstruction {
-    pub fn relevant_address(&self) -> Option<u16> {
-        match self {
-            ABFInstruction::New(x, _) => Some(*x),
-            ABFInstruction::Read(x) => Some(*x),
-            ABFInstruction::Free(x) => Some(*x),
-            ABFInstruction::Write(x) => Some(*x),
-            ABFInstruction::Add(x, _) => Some(*x),
-            ABFInstruction::While(x, _) => Some(*x),
-        }
-    }
     fn collect_modified_addresses(&self, addresses: &mut BTreeSet<u16>) {
         match self {
             ABFInstruction::Read(address) | ABFInstruction::Add(address, _) => {
@@ -70,7 +60,7 @@ impl ABFInstruction {
             _ => {}
         };
     }
-    fn collect_used_addresses(&self, addresses: &mut BTreeSet<u16>) {
+    fn collect_mentioned_addresses(&self, addresses: &mut BTreeSet<u16>) {
         match self {
             ABFInstruction::New(address, _)
             | ABFInstruction::Read(address)
@@ -82,7 +72,7 @@ impl ABFInstruction {
             ABFInstruction::While(address, body) => {
                 addresses.insert(*address);
                 for instruction in &body.instructions {
-                    instruction.collect_used_addresses(addresses);
+                    instruction.collect_mentioned_addresses(addresses);
                 }
             }
         };
@@ -112,10 +102,10 @@ impl ABFProgram {
         self.instructions.push(instruction);
     }
 
-    pub fn used_addresses(&self) -> BTreeSet<u16> {
+    pub fn mentioned_addresses(&self) -> BTreeSet<u16> {
         let mut result = BTreeSet::new();
         for instruction in &self.instructions {
-            instruction.collect_used_addresses(&mut result);
+            instruction.collect_mentioned_addresses(&mut result);
         }
         result
     }
@@ -135,27 +125,27 @@ impl ABFProgram {
 
         // Now we detect usage of all declared addresses. Undeclared addresses are handled by parent scopes.
         // We also optimize bodies of While loops here.
-        let mut last_address_usage = BTreeMap::new();
+        let mut last_address_mention = BTreeMap::new();
 
         for (index, instruction) in self.instructions.iter_mut().enumerate() {
             match instruction {
                 ABFInstruction::New(address, _) | ABFInstruction::Read(address) => {
-                    last_address_usage.insert(*address, index);
+                    last_address_mention.insert(*address, index);
                 }
                 ABFInstruction::Write(address) | ABFInstruction::Add(address, _) => {
-                    if last_address_usage.contains_key(address) {
-                        last_address_usage.insert(*address, index);
+                    if last_address_mention.contains_key(address) {
+                        last_address_mention.insert(*address, index);
                     }
                 }
                 ABFInstruction::Free(_) => panic!("There should not be any frees at this point."),
                 ABFInstruction::While(address, body) => {
                     Self::optimize_frees(body);
-                    if last_address_usage.contains_key(address) {
-                        last_address_usage.insert(*address, index);
+                    if last_address_mention.contains_key(address) {
+                        last_address_mention.insert(*address, index);
                     }
-                    for address in body.used_addresses() {
-                        if last_address_usage.contains_key(&address) {
-                            last_address_usage.insert(address, index);
+                    for address in body.mentioned_addresses() {
+                        if last_address_mention.contains_key(&address) {
+                            last_address_mention.insert(address, index);
                         }
                     }
                 }
@@ -163,11 +153,11 @@ impl ABFProgram {
         }
 
         // Sort last address usages by usage, from most recent to least recent
-        let mut last_address_usage: Vec<_> = last_address_usage.into_iter().collect();
-        last_address_usage.sort_by(|a, b| b.1.cmp(&a.1));
+        let mut last_address_mention: Vec<_> = last_address_mention.into_iter().collect();
+        last_address_mention.sort_by(|a, b| b.1.cmp(&a.1));
 
         // Insert frees at their optimal location
-        for (address, last_usage) in last_address_usage.into_iter() {
+        for (address, last_usage) in last_address_mention.into_iter() {
             self.instructions
                 .insert(last_usage + 1, ABFInstruction::Free(address));
         }
@@ -180,21 +170,15 @@ impl ABFProgram {
                     ABFInstruction::New(address, _) => {
                         variable_usage.insert(*address, false);
                     }
-                    ABFInstruction::Read(address) => {
+                    ABFInstruction::Read(address) | ABFInstruction::Write(address) => {
                         variable_usage.insert(*address, true);
-                    }
-                    ABFInstruction::Free(_address) => {
-                        // Do nothing
-                    }
-                    ABFInstruction::Write(address) => {
-                        variable_usage.insert(*address, true);
-                    }
-                    ABFInstruction::Add(_address, _) => {
-                        // Do nothing
                     }
                     ABFInstruction::While(address, body) => {
                         variable_usage.insert(*address, true);
                         analyze_variable_usage(body, variable_usage);
+                    }
+                    ABFInstruction::Free(_) | ABFInstruction::Add(_, _) => {
+                        // Do nothing
                     }
                 }
             }
