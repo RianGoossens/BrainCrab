@@ -36,16 +36,6 @@ Here are my upcoming tasks.
 - Modules
 
 ### New ABF TODO
-- Compile to BF
-- Get rid of `WriteConst`?
-- Optimize addresses
-  - This is hard, at `New` and `Read` we need to find unused addresses that are optimal
-  - The hard part are `New`s inside `While` loops.
-  - Potentially we need to cleanup addresses at every iteration so we can assume zero?
-    - Cons: might not always be needed
-    - Pros: we can assume some things if we know the loop iterated at least once.
-  - Alternatively assume any `New` inside a loop needs to zero first. I like this more.
-    - Cons: all `New`s inside a `While` produce `Runtime` after the loop
 - Document the concept somewhere
 
 ## Bugs

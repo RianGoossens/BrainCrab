@@ -58,6 +58,10 @@ impl BFProgramBuilder {
         program_stack.pop().unwrap()
     }
 
+    fn in_loop(&self) -> bool {
+        self.program_stack.len() > 1
+    }
+
     fn add_instruction(&mut self, instruction: BFTree) {
         self.current_program().push_instruction(instruction);
     }
@@ -167,18 +171,21 @@ impl ABFCompiler {
         fn compile_impl(
             compiler: &mut ABFCompiler,
             program: &ABFProgram,
-            in_loop: bool,
             builder: &mut BFProgramBuilder,
         ) {
             for instruction in &program.instructions {
                 match instruction {
                     ABFInstruction::New(address, value) => {
-                        let expected_value = if in_loop { None } else { Some(*value) };
+                        let expected_value = if builder.in_loop() {
+                            None
+                        } else {
+                            Some(*value)
+                        };
                         let bf_address = compiler.find_address(expected_value);
                         compiler.address_map.insert(*address, bf_address);
 
                         builder.move_to(bf_address);
-                        if !in_loop {
+                        if !builder.in_loop() {
                             let current_value = compiler.get_cell(bf_address).value;
                             if let BFValue::CompileTime(current_value) = current_value {
                                 let value_offset = value.wrapping_sub(current_value);
@@ -229,7 +236,7 @@ impl ABFCompiler {
                         }
 
                         builder.while_loop(bf_address, |builder| {
-                            compile_impl(compiler, body, true, builder);
+                            compile_impl(compiler, body, builder);
                         });
 
                         for modified_address in modified_addresses {
@@ -247,7 +254,7 @@ impl ABFCompiler {
         }
         let mut compiler = Self::new();
         let mut builder = BFProgramBuilder::new();
-        compile_impl(&mut compiler, program, false, &mut builder);
+        compile_impl(&mut compiler, program, &mut builder);
         builder.build_program()
     }
 }
