@@ -147,8 +147,8 @@ impl ABFCompiler {
         best_address
     }
 
-    fn get_cell(&self, index: u16) -> BFCell {
-        self.cells[index as usize]
+    fn get_value(&self, index: u16) -> BFValue {
+        self.cells[index as usize].value
     }
 
     fn get_cell_mut(&mut self, index: u16) -> &mut BFCell {
@@ -186,7 +186,7 @@ impl ABFCompiler {
 
                         builder.move_to(bf_address);
                         if !builder.in_loop() {
-                            let current_value = compiler.get_cell(bf_address).value;
+                            let current_value = compiler.get_value(bf_address);
                             if let BFValue::CompileTime(current_value) = current_value {
                                 let value_offset = value.wrapping_sub(current_value);
                                 builder.add(value_offset);
