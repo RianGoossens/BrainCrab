@@ -37,6 +37,7 @@ Here are my upcoming tasks.
 
 ### New ABF TODO
 - Document the concept somewhere
+- Use ABFState in both `ABFOptimizer` and `ABFCompiler`
 
 ## Bugs
 - Filter parser should somehow prioritize it's errors from the inner parser

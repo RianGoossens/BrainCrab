@@ -52,10 +52,9 @@ impl BFProgramBuilder {
         self.program_stack.last_mut().unwrap()
     }
 
-    fn build_program(self) -> BFProgram {
-        let mut program_stack = self.program_stack;
-        assert!(program_stack.len() == 1);
-        program_stack.pop().unwrap()
+    fn build_program(mut self) -> BFProgram {
+        assert!(self.program_stack.len() == 1);
+        self.program_stack.pop().unwrap()
     }
 
     fn in_loop(&self) -> bool {

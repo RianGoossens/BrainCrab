@@ -32,14 +32,12 @@ impl ABFCell {
 #[derive(Debug, Clone, Default)]
 pub struct ABFState {
     pub values: Vec<ABFCell>,
-    pub last_address: u16,
 }
 
 impl ABFState {
     pub fn new() -> Self {
         Self {
             values: vec![ABFCell::new(0, false); 30000],
-            last_address: 0,
         }
     }
 
@@ -55,7 +53,6 @@ impl ABFState {
         let cell = self.get_cell_mut(address);
         cell.value = value.into();
         cell.used = true;
-        self.last_address = address;
     }
 
     pub fn free(&mut self, address: u16) {
