@@ -1,13 +1,14 @@
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use crate::{
-    absolute_bf::{ABFProgram, ABFTree},
+    abf::{ABFProgram, ABFProgramBuilder},
+    absolute_bf::OldABFProgram,
     allocator::BrainCrabAllocator,
     ast::{Expression, Instruction, LValueExpression, Program},
     compiler_error::{CompileResult, CompilerError},
     constant_value::ConstantValue,
     types::Type,
-    value::{LValue, MemorySlice, Value},
+    value::Value,
 };
 
 pub type AddressPool = Rc<RefCell<BrainCrabAllocator>>;
@@ -49,22 +50,8 @@ impl<'a> ScopedVariableMap<'a> {
         self.variable_map_stack.push(BTreeMap::new());
     }
 
-    pub fn end_scope(&mut self) -> Vec<LValue> {
-        let last_variable_map = self.variable_map_stack.pop().unwrap();
-        last_variable_map
-            .into_values()
-            .filter_map(|x| {
-                if let Value::LValue(lvalue) = x {
-                    if lvalue.is_owned() {
-                        Some(lvalue)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect()
+    pub fn end_scope(&mut self) {
+        self.variable_map_stack.pop().unwrap();
     }
 }
 
@@ -103,22 +90,24 @@ impl AccessedValue {
                 }
             }
         }
-        value_type_impl(&self.source.value_type()?, &self.accessors)
+        value_type_impl(&self.source.value_type, &self.accessors)
     }
 }
 
 pub struct BrainCrabCompiler<'a> {
-    pub program_stack: Vec<ABFProgram>,
+    pub program_stack: Vec<OldABFProgram>,
     pub variable_map: ScopedVariableMap<'a>,
-    pub address_pool: AddressPool,
+    pub old_address_pool: AddressPool,
+    pub builder: ABFProgramBuilder,
 }
 
 impl<'a> Default for BrainCrabCompiler<'a> {
     fn default() -> Self {
         Self {
-            program_stack: vec![ABFProgram::new()],
+            program_stack: vec![OldABFProgram::new()],
             variable_map: Default::default(),
-            address_pool: Rc::new(RefCell::new(BrainCrabAllocator::new())),
+            old_address_pool: Rc::new(RefCell::new(BrainCrabAllocator::new())),
+            builder: ABFProgramBuilder::new(),
         }
     }
 }
@@ -128,51 +117,32 @@ impl<'a> BrainCrabCompiler<'a> {
         Self::default()
     }
 
-    pub fn program(&mut self) -> &mut ABFProgram {
-        self.program_stack.last_mut().unwrap()
-    }
-
-    pub fn push_instruction(&mut self, instruction: ABFTree) {
-        self.program().push_instruction(instruction);
-    }
-
-    pub fn get_result(mut self) -> CompileResult<'a, ABFProgram> {
-        if self.program_stack.len() != 1 {
-            Err(CompilerError::UnclosedLoop)
+    pub fn get_result(self) -> CompileResult<'a, ABFProgram> {
+        if let Some(result) = self.builder.program() {
+            Ok(result)
         } else {
-            Ok(self.program_stack.pop().unwrap())
+            Err(CompilerError::UnclosedLoop)
         }
     }
 
     // Memory management
 
-    pub fn allocate(&mut self, value_type: Type) -> CompileResult<'a, LValue> {
-        if let Some(address) = self.address_pool.borrow_mut().allocate(value_type.size()) {
-            Ok(LValue {
-                address,
-                value_type,
-                address_pool: Some(self.address_pool.clone()),
-                mutable: true,
-            })
-        } else {
-            Err(CompilerError::NoFreeAddresses)
-        }
+    pub fn allocate(&mut self, value_type: Type) -> Value {
+        let addresses: Vec<_> = (0..value_type.size())
+            .map(|_| self.builder.new_address(0))
+            .collect();
+        Value::new(addresses, value_type, true)
     }
 
     pub fn register_variable(&mut self, name: &'a str, value: Value) -> CompileResult<'a, Value> {
         if self.variable_map.defined_in_current_scope(name) {
             Err(CompilerError::AlreadyDefinedVariable(name))
+        } else if value.is_owned() {
+            let borrowed = value.borrow();
+            self.variable_map.register(name, value);
+            Ok(borrowed)
         } else {
-            match &value {
-                Value::LValue(lvalue) if lvalue.is_borrowed() => {
-                    Err(CompilerError::CantRegisterBorrowedValues(name))
-                }
-                _ => {
-                    let borrowed = value.borrow();
-                    self.variable_map.register(name, value);
-                    Ok(borrowed)
-                }
-            }
+            Err(CompilerError::CantRegisterBorrowedValues(name))
         }
     }
 
@@ -182,12 +152,12 @@ impl<'a> BrainCrabCompiler<'a> {
         value: Value,
         mutable: bool,
     ) -> CompileResult<'a, Value> {
-        if mutable || matches!(value, Value::LValue(_)) {
+        if mutable {
             let mut owned = self.new_owned(value)?;
             owned.mutable = mutable;
             let borrow = owned.borrow();
-            self.register_variable(name, owned.into())?;
-            Ok(borrow.into())
+            self.register_variable(name, owned)?;
+            Ok(borrow)
         } else {
             self.register_variable(name, value)
         }
@@ -201,28 +171,36 @@ impl<'a> BrainCrabCompiler<'a> {
         }
     }
 
-    pub fn borrow_mutable(&self, name: &'a str) -> CompileResult<'a, LValue> {
+    pub fn borrow_mutable(&self, name: &'a str) -> CompileResult<'a, Value> {
         let result = self.borrow_immutable(name)?;
 
-        match result {
-            Value::LValue(lvalue) if lvalue.mutable => Ok(lvalue),
-            _ => Err(CompilerError::MutableBorrowOfImmutableVariable(result)),
+        if result.mutable {
+            Ok(result)
+        } else {
+            Err(CompilerError::MutableBorrowOfImmutableVariable(result))
         }
     }
 
-    pub fn new_owned(&mut self, value: impl Into<Value>) -> CompileResult<'a, LValue> {
+    pub fn new_owned(&mut self, value: impl Into<Value>) -> CompileResult<'a, Value> {
         let value: Value = value.into();
-        match value {
-            Value::LValue(lvalue) if lvalue.is_owned() => Ok(lvalue),
-            _ => {
-                let owned = self.allocate(value.value_type()?)?;
-                self.add_slices(value, &[owned.memory_slice()])?;
-                Ok(owned)
-            }
+        if value.is_owned() {
+            Ok(value)
+        } else {
+            let owned = self.allocate(value.value_type.clone());
+            self.copy_and_add_values(value, &[owned.borrow()])?;
+            Ok(owned)
         }
     }
 
-    pub fn reinterpret_cast(&self, mut value: LValue, new_type: Type) -> CompileResult<'a, LValue> {
+    pub fn value_from_const(&mut self, value: impl Into<ConstantValue>) -> Value {
+        let value: ConstantValue = value.into();
+        let value_type = value.value_type().unwrap();
+        let data = value.data();
+        let addresses: Vec<_> = data.iter().map(|x| self.builder.new_address(*x)).collect();
+        Value::new(addresses, value_type, true)
+    }
+
+    pub fn reinterpret_cast(&self, mut value: Value, new_type: Type) -> CompileResult<'a, Value> {
         if value.value_type.size() != new_type.size() {
             Err(CompilerError::InvalidReinterpretCast {
                 original: value.value_type.clone(),
@@ -237,15 +215,16 @@ impl<'a> BrainCrabCompiler<'a> {
     // Primitives
 
     pub fn add_to(&mut self, address: u16, value: i8) {
-        self.push_instruction(ABFTree::Add(address, value));
+        self.builder.add(address, value);
     }
 
     pub fn write(&mut self, address: u16) {
-        self.push_instruction(ABFTree::Write(address));
+        self.builder.write(address);
     }
 
-    pub fn read(&mut self, address: u16) {
-        self.push_instruction(ABFTree::Read(address));
+    pub fn read(&mut self) -> Value {
+        let address = self.builder.read();
+        Value::new(vec![address], Type::U8, true)
     }
 
     pub fn scoped(
@@ -254,53 +233,88 @@ impl<'a> BrainCrabCompiler<'a> {
     ) -> CompileResult<'a, ()> {
         self.variable_map.start_scope();
         f(self)?;
-        let scope = self.variable_map.end_scope();
-        for owned in scope {
-            self.zero(owned.memory_slice());
+        self.variable_map.end_scope();
+        Ok(())
+    }
+
+    pub fn loop_while(
+        &mut self,
+        predicate: u16,
+        f: impl FnOnce(&mut Self) -> CompileResult<'a, ()>,
+    ) -> CompileResult<'a, ()> {
+        self.scoped(|compiler| {
+            compiler.builder.start_loop();
+            f(compiler)?;
+            compiler.builder.end_loop(predicate);
+            Ok(())
+        })
+    }
+
+    // Utilities
+    pub fn write_value(&mut self, value: Value) {
+        for address in value.addresses {
+            self.write(address);
+        }
+    }
+
+    pub fn zero(&mut self, value: Value) {
+        for address in value.addresses {
+            self.builder.zero(address);
+        }
+    }
+
+    pub fn move_and_add_values(
+        &mut self,
+        source: Value,
+        destinations: &[Value],
+    ) -> CompileResult<'a, ()> {
+        for destination in destinations {
+            assert!(destination.size() == source.size());
+        }
+        for (i, source_address) in source.addresses.into_iter().enumerate() {
+            self.loop_while(source_address, |compiler| {
+                compiler.add_to(source_address, -1);
+                for destination in destinations {
+                    let destination_address = destination.addresses[i];
+                    assert!(destination_address != source_address);
+                    compiler.add_to(destination.addresses[i], 1);
+                }
+                Ok(())
+            })?;
         }
         Ok(())
     }
 
-    pub fn loop_while<F: FnOnce(&mut Self) -> CompileResult<'a, ()>>(
+    pub fn copy_and_add_values(
         &mut self,
-        predicate: u16,
-        f: F,
+        source: Value,
+        destinations: &[Value],
     ) -> CompileResult<'a, ()> {
-        self.program_stack.push(ABFProgram::new());
-        self.scoped(|compiler| {
-            f(compiler)?;
-            Ok(())
-        })?;
-
-        let loop_program = self.program_stack.pop().unwrap();
-        self.push_instruction(ABFTree::While(predicate, loop_program.body));
-        Ok(())
+        // If source is owned then we are throwing it away anyway, so we can move instead
+        if source.is_owned() {
+            self.move_and_add_values(source, destinations)
+        } else {
+            let temp = self.allocate(source.value_type.clone());
+            let mut new_destinations = vec![temp.borrow()];
+            for destination in destinations {
+                new_destinations.push(destination.borrow());
+            }
+            self.move_and_add_values(source.borrow(), &new_destinations)?;
+            self.move_and_add_values(temp, &[source])
+        }
     }
 
-    // Utilities
     pub fn if_then<I: FnOnce(&mut Self) -> CompileResult<'a, ()>>(
         &mut self,
         predicate: Value,
         body: I,
     ) -> CompileResult<'a, ()> {
-        match predicate {
-            Value::Constant(value) => {
-                if value.get_bool()? {
-                    body(self)
-                } else {
-                    Ok(())
-                }
-            }
-            Value::LValue(variable) => {
-                let if_check = self.new_owned(variable)?;
-                //if_check.type_check(&Type::Bool)?;
-                self.loop_while(if_check.address, |compiler| {
-                    body(compiler)?;
-                    compiler.zero(if_check.memory_slice());
-                    Ok(())
-                })
-            }
-        }
+        let if_check = self.new_owned(predicate)?;
+        self.loop_while(if_check.address(), |compiler| {
+            body(compiler)?;
+            compiler.zero(if_check);
+            Ok(())
+        })
     }
 
     pub fn if_then_else<
@@ -312,31 +326,19 @@ impl<'a> BrainCrabCompiler<'a> {
         if_case: I,
         else_case: E,
     ) -> CompileResult<'a, ()> {
-        match predicate {
-            Value::Constant(value) => {
-                if value.get_bool()? {
-                    if_case(self)
-                } else {
-                    else_case(self)
-                }
-            }
-            Value::LValue(predicate) => {
-                //predicate.type_check(&Type::Bool)?;
-                let else_check = self.new_owned(1)?;
-                let if_check = self.new_owned(predicate)?;
-                self.loop_while(if_check.address, |compiler| {
-                    if_case(compiler)?;
-                    compiler.sub_assign(else_check.address, 1.into())?;
-                    compiler.zero(if_check.memory_slice());
-                    Ok(())
-                })?;
-                self.loop_while(else_check.address, |compiler| {
-                    else_case(compiler)?;
-                    compiler.sub_assign(else_check.address, 1.into())?;
-                    Ok(())
-                })
-            }
-        }
+        let else_check = self.value_from_const(1);
+        let if_check = self.new_owned(predicate)?;
+        self.loop_while(if_check.address(), |compiler| {
+            if_case(compiler)?;
+            compiler.add_to(else_check.address(), -1);
+            compiler.zero(if_check);
+            Ok(())
+        })?;
+        self.loop_while(else_check.address(), |compiler| {
+            else_case(compiler)?;
+            compiler.add_to(else_check.address(), -1);
+            Ok(())
+        })
     }
 
     pub fn n_times(
@@ -344,267 +346,153 @@ impl<'a> BrainCrabCompiler<'a> {
         n: Value,
         f: impl Fn(&mut Self) -> CompileResult<'a, ()>,
     ) -> CompileResult<'a, ()> {
-        match n {
-            Value::Constant(n) => match n {
-                ConstantValue::U8(n) => {
-                    for _ in 0..n {
-                        self.scoped(|compiler| f(compiler))?
-                    }
-                }
-                ConstantValue::Bool(n) => {
-                    if n {
-                        self.scoped(|compiler| f(compiler))?
-                    }
-                }
-                _ => {
-                    panic!("n times with a constant value which is not a bool or u8. Instead got {n:?}")
-                }
-            },
-            Value::LValue(lvalue) => {
-                if lvalue.is_owned() {
-                    self.loop_while(lvalue.address, |compiler| {
-                        compiler.add_to(lvalue.address, -1);
-                        f(compiler)?;
-                        Ok(())
-                    })?;
-                } else {
-                    let address = lvalue.address;
-                    let temp = self.new_owned(0)?;
-                    self.loop_while(address, |compiler| {
-                        compiler.add_to(address, -1);
-                        compiler.add_to(temp.address, 1);
-                        f(compiler)?;
-                        Ok(())
-                    })?;
-                    self.loop_while(temp.address, |compiler| {
-                        compiler.add_to(temp.address, -1);
-                        compiler.add_to(address, 1);
-                        Ok(())
-                    })?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn write_value(&mut self, value: Value) -> CompileResult<'a, ()> {
-        match &value {
-            Value::LValue(lvalue) if lvalue.is_borrowed() => {
-                self.write(lvalue.address);
+        assert!(
+            n.value_type.size() == 1,
+            "n times with a constant value which is not a bool or u8. Instead got {n:?}"
+        );
+        if n.is_owned() {
+            self.loop_while(n.address(), |compiler| {
+                compiler.add_to(n.address(), -1);
+                f(compiler)?;
                 Ok(())
-            }
-            _ => {
-                let owned = self.new_owned(value)?;
-                self.write(owned.address);
-                self.zero(owned.memory_slice());
+            })?;
+        } else {
+            let address = n.address();
+            let temp = self.value_from_const(0);
+            self.loop_while(address, |compiler| {
+                compiler.add_to(address, -1);
+                compiler.add_to(temp.address(), 1);
+                f(compiler)?;
                 Ok(())
-            }
-        }
-    }
-
-    pub fn zero(&mut self, memory_slice: MemorySlice) {
-        let mut body = vec![];
-        for address in memory_slice.range() {
-            body.push(ABFTree::While(address, vec![ABFTree::Add(address, -1)]));
-        }
-        self.program().append(ABFProgram { body });
-    }
-
-    pub fn add_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
-        if let Value::LValue(variable) = &value {
-            let value_address = variable.address;
-            if value_address == destination {
-                assert!(!variable.is_owned(), "Attempting to add a temp onto itself, which is not allowed as it's already consumed");
-                let temp = self.new_owned(0)?;
-                self.copy_on_top_of_cells(value, &[temp.address])?;
-                self.copy_on_top_of_cells(temp.into(), &[value_address])?;
-                return Ok(());
-            }
-        }
-        self.copy_on_top_of_cells(value, &[destination])
-    }
-
-    pub fn sub_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
-        if let Value::LValue(variable) = &value {
-            let value_address = variable.address;
-            if value_address == destination {
-                assert!(!variable.is_owned(), "Attempting to sub a temp from itself, which is not allowed as it's already consumed");
-                self.zero(MemorySlice::new(destination, 1));
-                return Ok(());
-            }
-        }
-        self.n_times(value, |compiler| {
-            compiler.add_to(destination, -1);
-            Ok(())
-        })
-    }
-
-    pub fn mul_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
-        let result = self.new_owned(0)?;
-        self.n_times(value, move |compiler| {
-            compiler.add_assign(result.address, Value::new_borrow(destination, Type::U8))?;
-            Ok(())
-        })?;
-        self.assign(MemorySlice::new(destination, 1), result.into())
-    }
-
-    pub fn div_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
-        if let Value::LValue(variable) = &value {
-            let value_address = variable.address;
-            if value_address == destination {
-                assert!(!variable.is_owned(), "Attempting to div a temp from itself, which is not allowed as it's already consumed");
-                self.zero(MemorySlice::new(destination, 1));
-                self.add_assign(destination, 1.into())?;
-                return Ok(());
-            }
-        }
-        let result = self.new_owned(0)?;
-
-        self.loop_while(destination, |compiler| {
-            let predicate = compiler
-                .eval_less_than_equals(value.borrow(), Value::new_borrow(destination, Type::U8))?;
-            compiler.if_then_else(
-                predicate,
-                |compiler| {
-                    compiler.sub_assign(destination, value)?;
-                    compiler.add_assign(result.address, 1.into())
-                },
-                |compiler| {
-                    compiler.zero(MemorySlice::new(destination, 1));
-                    Ok(())
-                },
-            )
-        })?;
-        self.copy_on_top_of_cells(result.into(), &[destination])
-    }
-
-    pub fn mod_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
-        if let Value::LValue(variable) = &value {
-            let value_address = variable.address;
-            if value_address == destination {
-                assert!(!variable.is_owned(), "Attempting to mod a temp from itself, which is not allowed as it's already consumed");
-                self.zero(MemorySlice::new(destination, 1));
-                return Ok(());
-            }
-        }
-
-        let predicate = self
-            .eval_greater_than_equals(Value::new_borrow(destination, Type::U8), value.borrow())?;
-        let predicate = self.new_owned(predicate)?;
-        self.loop_while(predicate.address, |compiler| {
-            compiler.sub_assign(destination, value.borrow())?;
-            let new_predicate = compiler.eval_greater_than_equals(
-                Value::new_borrow(destination, Type::U8),
-                value.borrow(),
-            )?;
-            compiler.assign(MemorySlice::new(predicate.address, 1), new_predicate)
-        })
-    }
-
-    pub fn not_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
-        self.if_then_else(
-            value,
-            |compiler| {
-                compiler.zero(MemorySlice::new(destination, 1));
-                Ok(())
-            },
-            |compiler| compiler.add_assign(destination, 1.into()),
-        )
-    }
-    pub fn and_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
-        self.if_then_else(
-            value,
-            |_| Ok(()),
-            |compiler| {
-                compiler.zero(MemorySlice::new(destination, 1));
-                Ok(())
-            },
-        )
-    }
-    pub fn or_assign(&mut self, destination: u16, value: Value) -> CompileResult<'a, ()> {
-        self.if_then_else(
-            Value::new_borrow(destination, Type::Bool),
-            |_| Ok(()),
-            |compiler| {
-                compiler.if_then(value, |compiler| compiler.add_assign(destination, 1.into()))
-            },
-        )
-    }
-
-    pub fn assign(&mut self, destination: MemorySlice, value: Value) -> CompileResult<'a, ()> {
-        if let Value::LValue(variable) = &value {
-            let value_address = variable.memory_slice();
-            if value_address == destination {
-                // assigning to self is a no-op
-                return Ok(());
-            }
-        }
-        self.zero(destination);
-        self.add_slices(value, &[destination])
-    }
-
-    pub fn move_on_top_of_cells(
-        &mut self,
-        source: LValue,
-        destinations: &[u16],
-    ) -> CompileResult<'a, ()> {
-        self.loop_while(source.address, |compiler| {
-            compiler.add_to(source.address, -1);
-            for destination in destinations {
-                compiler.add_to(*destination, 1);
-            }
-            Ok(())
-        })
-    }
-
-    pub fn copy_on_top_of_cells(
-        &mut self,
-        source: Value,
-        destinations: &[u16],
-    ) -> CompileResult<'a, ()> {
-        self.n_times(source, |compiler| {
-            for destination in destinations {
-                compiler.add_to(*destination, 1);
-            }
-            Ok(())
-        })?;
-        Ok(())
-    }
-
-    pub fn add_slices(
-        &mut self,
-        source: Value,
-        destinations: &[MemorySlice],
-    ) -> CompileResult<'a, ()> {
-        //TODO check if destinations have correct sizes
-        let data = source.data();
-        for (offset, x) in data.into_iter().enumerate() {
-            let offset = offset as u16;
-            self.n_times(x, |compiler| {
-                for destination in destinations {
-                    compiler.add_to(destination.address + offset, 1);
-                }
+            })?;
+            self.loop_while(temp.address(), |compiler| {
+                compiler.add_to(temp.address(), -1);
+                compiler.add_to(address, 1);
                 Ok(())
             })?;
         }
-        if source.is_owned() {
-            self.zero(source.mutable()?.memory_slice());
+        Ok(())
+    }
+
+    pub fn add_assign(&mut self, destination: Value, value: Value) -> CompileResult<'a, ()> {
+        if destination.address() == value.address() {
+            let temp = self.value_from_const(0);
+            self.copy_and_add_values(destination.borrow(), &[temp.borrow()])?;
+            self.move_and_add_values(temp, &[destination])
+        } else {
+            self.copy_and_add_values(value, &[destination])
+        }
+    }
+
+    pub fn sub_assign(&mut self, destination: Value, value: Value) -> CompileResult<'a, ()> {
+        if destination.address() == value.address() {
+            self.zero(destination);
+            Ok(())
+        } else {
+            self.n_times(value, |compiler| {
+                compiler.add_to(destination.address(), -1);
+                Ok(())
+            })
+        }
+    }
+
+    pub fn mul_assign(&mut self, destination: Value, value: Value) -> CompileResult<'a, ()> {
+        let result = self.value_from_const(0);
+        self.n_times(value, |compiler| {
+            compiler.add_assign(result.borrow(), destination.borrow())
+        })?;
+        self.assign(destination, result.borrow())
+    }
+
+    pub fn div_assign(&mut self, destination: Value, value: Value) -> CompileResult<'a, ()> {
+        if destination.address() == value.address() {
+            self.zero(destination.borrow());
+            self.add_to(destination.address(), 1);
+            Ok(())
+        } else {
+            let result = self.value_from_const(0);
+
+            self.loop_while(destination.address(), |compiler| {
+                let predicate =
+                    compiler.eval_less_than_equals(value.borrow(), destination.borrow())?;
+                compiler.if_then_else(
+                    predicate,
+                    |compiler| {
+                        compiler.sub_assign(destination.borrow(), value.borrow())?;
+                        compiler.add_to(result.address(), 1);
+                        Ok(())
+                    },
+                    |compiler| {
+                        compiler.zero(destination.borrow());
+                        Ok(())
+                    },
+                )
+            })?;
+            self.move_and_add_values(result, &[destination])
+        }
+    }
+
+    pub fn mod_assign(&mut self, destination: Value, value: Value) -> CompileResult<'a, ()> {
+        if destination.address() == value.address() {
+            self.zero(destination);
+            Ok(())
+        } else {
+            let predicate = self.eval_greater_than_equals(destination.borrow(), value.borrow())?;
+            self.loop_while(predicate.address(), |compiler| {
+                compiler.sub_assign(destination.borrow(), value.borrow())?;
+                let new_predicate =
+                    compiler.eval_greater_than_equals(destination.borrow(), value.borrow())?;
+                compiler.assign(predicate, new_predicate)
+            })
+        }
+    }
+
+    pub fn not_assign(&mut self, value: Value) -> CompileResult<'a, ()> {
+        self.if_then_else(
+            value.borrow(),
+            |compiler| {
+                compiler.zero(value.borrow());
+                Ok(())
+            },
+            |compiler| {
+                compiler.add_to(value.address(), 1);
+                Ok(())
+            },
+        )
+    }
+    pub fn and_assign(&mut self, destination: Value, value: Value) -> CompileResult<'a, ()> {
+        self.if_then_else(
+            value,
+            |_| Ok(()),
+            |compiler| {
+                compiler.zero(destination);
+                Ok(())
+            },
+        )
+    }
+    pub fn or_assign(&mut self, destination: Value, value: Value) -> CompileResult<'a, ()> {
+        self.if_then_else(
+            destination.borrow(),
+            |_| Ok(()),
+            |compiler| compiler.assign(destination, value),
+        )
+    }
+
+    pub fn assign(&mut self, destination: Value, value: Value) -> CompileResult<'a, ()> {
+        assert!(destination.size() == value.size());
+        if destination.addresses != value.addresses {
+            self.zero(destination.borrow());
+            self.copy_and_add_values(value, &[destination])?;
         }
         Ok(())
     }
 
     pub fn print_string(&mut self, string: String) -> CompileResult<'a, ()> {
         if string.is_ascii() {
-            let temp = self.new_owned(0)?;
-            let mut current_value = 0u8;
             for char in string.chars() {
-                let new_value = char as u8;
-                let offset = new_value.wrapping_sub(current_value);
-                self.add_assign(temp.address, offset.into())?;
-                self.write(temp.address);
-                current_value = new_value;
+                let new_value = self.value_from_const(char as u8);
+                self.write_value(new_value);
             }
-            self.sub_assign(temp.address, current_value.into())?;
 
             Ok(())
         } else {
@@ -615,202 +503,107 @@ impl<'a> BrainCrabCompiler<'a> {
     // Expressions
 
     fn eval_add(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
-        a.type_check(Type::U8)?;
-        b.type_check(Type::U8)?;
-        match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => {
-                let a = a.get_u8()?;
-                let b = b.get_u8()?;
-                Ok(a.wrapping_add(b).into())
-            }
-            (a, Value::LValue(b)) if b.is_owned() => {
-                self.add_assign(b.address, a)?;
-                Ok(b.into())
-            }
-            (a, b) => {
-                let temp = self.new_owned(a)?;
-                self.add_assign(temp.address, b)?;
-
-                Ok(temp.into())
-            }
+        a.type_check(&Type::U8)?;
+        b.type_check(&Type::U8)?;
+        if a.is_owned() {
+            self.add_assign(a.borrow(), b)?;
+            Ok(a)
+        } else {
+            let result = self.new_owned(b)?;
+            self.add_assign(result.borrow(), a)?;
+            Ok(result)
         }
     }
 
     fn eval_mul(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
-        a.type_check(Type::U8)?;
-        b.type_check(Type::U8)?;
-        match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => {
-                let a = a.get_u8()?;
-                let b = b.get_u8()?;
-                Ok(a.wrapping_mul(b).into())
-            }
-            (a, Value::LValue(b)) if b.is_owned() => {
-                self.mul_assign(b.address, a)?;
-                Ok(b.into())
-            }
-            (a, b) => {
-                let temp = self.new_owned(a)?;
-                self.mul_assign(temp.address, b)?;
+        a.type_check(&Type::U8)?;
+        b.type_check(&Type::U8)?;
+        if b.is_owned() {
+            self.mul_assign(b.borrow(), a)?;
+            Ok(b)
+        } else {
+            let result = self.new_owned(a)?;
+            self.mul_assign(result.borrow(), b)?;
 
-                Ok(temp.into())
-            }
+            Ok(result)
         }
     }
 
     fn eval_sub(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
-        a.type_check(Type::U8)?;
-        b.type_check(Type::U8)?;
-        match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => {
-                let a = a.get_u8()?;
-                let b = b.get_u8()?;
-                Ok(a.wrapping_sub(b).into())
-            }
-            (a, b) => {
-                let temp = self.new_owned(a)?;
-                self.sub_assign(temp.address, b)?;
+        a.type_check(&Type::U8)?;
+        b.type_check(&Type::U8)?;
+        let result = self.new_owned(a)?;
+        self.sub_assign(result.borrow(), b)?;
 
-                Ok(temp.into())
-            }
-        }
+        Ok(result)
     }
 
     fn eval_div(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
-        a.type_check(Type::U8)?;
-        b.type_check(Type::U8)?;
-        match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => {
-                let a = a.get_u8()?;
-                let b = b.get_u8()?;
-                Ok(a.wrapping_div(b).into())
-            }
-            (a, b) => {
-                let temp = self.new_owned(a)?;
-                self.div_assign(temp.address, b)?;
+        a.type_check(&Type::U8)?;
+        b.type_check(&Type::U8)?;
+        let result = self.new_owned(a)?;
+        self.div_assign(result.borrow(), b)?;
 
-                Ok(temp.into())
-            }
-        }
+        Ok(result)
     }
 
     fn eval_mod(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
-        a.type_check(Type::U8)?;
-        b.type_check(Type::U8)?;
-        match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => {
-                let a = a.get_u8()?;
-                let b = b.get_u8()?;
-                Ok((a % b).into())
-            }
-            (a, b) => {
-                let temp = self.new_owned(a)?;
-                self.mod_assign(temp.address, b)?;
+        a.type_check(&Type::U8)?;
+        b.type_check(&Type::U8)?;
+        let result = self.new_owned(a)?;
+        self.mod_assign(result.borrow(), b)?;
 
-                Ok(temp.into())
-            }
-        }
+        Ok(result)
     }
 
-    fn eval_not(&mut self, inner: Value) -> CompileResult<'a, Value> {
-        inner.type_check(Type::Bool)?;
-        match inner {
-            Value::Constant(value) => {
-                if value.get_bool()? {
-                    Ok(false.into())
-                } else {
-                    Ok(true.into())
-                }
-            }
-            Value::LValue(lvalue) => {
-                if lvalue.is_owned() {
-                    self.not_assign(lvalue.address, lvalue.borrow().into())?;
-                    Ok(lvalue.into())
-                } else {
-                    let result = self.new_owned(false)?;
-                    self.not_assign(
-                        result.address,
-                        Value::new_borrow(lvalue.address, Type::Bool),
-                    )?;
-                    Ok(result.into())
-                }
-            }
-        }
+    fn eval_not(&mut self, value: Value) -> CompileResult<'a, Value> {
+        value.type_check(&Type::Bool)?;
+        let result = self.new_owned(value)?;
+        self.not_assign(result.borrow())?;
+        Ok(result)
     }
 
     fn eval_and(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
-        a.type_check(Type::Bool)?;
-        b.type_check(Type::Bool)?;
-        match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => {
-                let a = a.get_bool()?;
-                let b = b.get_bool()?;
-                Ok((a && b).into())
-            }
-            (Value::LValue(a), b) if a.is_owned() => {
-                self.and_assign(a.address, b)?;
-                Ok(a.into())
-            }
-            (a, Value::LValue(b)) if b.is_owned() => {
-                self.and_assign(b.address, a)?;
-                Ok(b.into())
-            }
-            (a, b) => {
-                let temp = self.new_owned(a)?;
-                self.and_assign(temp.address, b)?;
+        a.type_check(&Type::Bool)?;
+        b.type_check(&Type::Bool)?;
+        if b.is_owned() {
+            self.and_assign(b.borrow(), a)?;
+            Ok(b)
+        } else {
+            let result = self.new_owned(a)?;
+            self.and_assign(result.borrow(), b)?;
 
-                Ok(temp.into())
-            }
+            Ok(result)
         }
     }
 
     fn eval_or(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
-        a.type_check(Type::Bool)?;
-        b.type_check(Type::Bool)?;
-        match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => {
-                let a = a.get_bool()?;
-                let b = b.get_bool()?;
-                Ok((a || b).into())
-            }
-            (Value::LValue(a), b) if a.is_owned() => {
-                self.or_assign(a.address, b)?;
-                Ok(a.into())
-            }
-            (a, Value::LValue(b)) if b.is_owned() => {
-                self.or_assign(b.address, a)?;
-                Ok(b.into())
-            }
-            (a, b) => {
-                let temp = self.new_owned(a)?;
-                self.or_assign(temp.address, b)?;
+        a.type_check(&Type::Bool)?;
+        b.type_check(&Type::Bool)?;
+        if b.is_owned() {
+            self.or_assign(b.borrow(), a)?;
+            Ok(b)
+        } else {
+            let result = self.new_owned(a)?;
+            self.or_assign(result.borrow(), b)?;
 
-                Ok(temp.into())
-            }
+            Ok(result)
         }
     }
 
     fn eval_not_equals(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
-        a.type_check(Type::U8)?;
-        b.type_check(Type::U8)?;
-        match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => {
-                let a = a.get_u8()?;
-                let b = b.get_u8()?;
-                Ok((a != b).into())
-            }
-            (a, Value::LValue(mut b)) if b.is_owned() => {
-                self.sub_assign(b.address, a)?;
-                b = self.reinterpret_cast(b, Type::Bool)?;
-                Ok(b.into())
-            }
-            (a, b) => {
-                let mut temp = self.new_owned(a)?;
-                self.sub_assign(temp.address, b)?;
-                temp = self.reinterpret_cast(temp, Type::Bool)?;
+        a.type_check(&Type::U8)?;
+        b.type_check(&Type::U8)?;
+        if b.is_owned() {
+            self.sub_assign(b.borrow(), a)?;
+            let result = self.reinterpret_cast(b, Type::Bool)?;
+            Ok(result)
+        } else {
+            let mut result = self.new_owned(a)?;
+            self.sub_assign(result.borrow(), b)?;
+            result = self.reinterpret_cast(result, Type::Bool)?;
 
-                Ok(temp.into())
-            }
+            Ok(result)
         }
     }
 
@@ -820,45 +613,39 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_less_than_equals(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
-        match (a, b) {
-            (Value::Constant(a), Value::Constant(b)) => {
-                let a = a.get_u8()?;
-                let b = b.get_u8()?;
-                Ok((a <= b).into())
-            }
-            (a, b) => {
-                let a_temp = self.new_owned(a)?;
-                let b_temp = self.new_owned(b)?;
-                let result = self.new_owned(false)?;
-                let loop_value = self.new_owned(true)?;
-                self.loop_while(loop_value.address, |compiler| {
+        let a_temp = self.new_owned(a)?;
+        let b_temp = self.new_owned(b)?;
+        let result = self.value_from_const(false);
+        let loop_value = self.value_from_const(true);
+        self.loop_while(loop_value.address(), |compiler| {
+            compiler.if_then_else(
+                a_temp.borrow(),
+                |compiler| {
                     compiler.if_then_else(
-                        a_temp.borrow().into(),
+                        b_temp.borrow(),
                         |compiler| {
-                            compiler.if_then_else(
-                                b_temp.borrow().into(),
-                                |compiler| {
-                                    compiler.sub_assign(a_temp.address, 1.into())?;
-                                    compiler.sub_assign(b_temp.address, 1.into())
-                                },
-                                |compiler| {
-                                    compiler.zero(a_temp.memory_slice());
-                                    compiler.sub_assign(loop_value.address, 1.into())
-                                },
-                            )
+                            compiler.add_to(a_temp.address(), -1);
+                            compiler.add_to(b_temp.address(), -1);
+                            Ok(())
                         },
                         |compiler| {
-                            compiler.zero(b_temp.memory_slice());
-                            compiler.add_assign(result.address, 1.into())?;
-                            compiler.sub_assign(loop_value.address, 1.into())
+                            compiler.zero(a_temp.borrow());
+                            compiler.add_to(loop_value.address(), -1);
+                            Ok(())
                         },
-                    )?;
+                    )
+                },
+                |compiler| {
+                    compiler.zero(b_temp.borrow());
+                    compiler.add_to(result.address(), 1);
+                    compiler.add_to(loop_value.address(), 1);
                     Ok(())
-                })?;
+                },
+            )?;
+            Ok(())
+        })?;
 
-                Ok(result.into())
-            }
-        }
+        Ok(result)
     }
 
     fn eval_greater_than_equals(&mut self, a: Value, b: Value) -> CompileResult<'a, Value> {
@@ -876,6 +663,8 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_const_index(array: &Value, index: u8) -> CompileResult<'a, Value> {
+        todo!()
+        /*
         // Do bounds checks
         match array {
             Value::Constant(ConstantValue::Array(array)) => {
@@ -893,11 +682,15 @@ impl<'a> BrainCrabCompiler<'a> {
             },
             _ => Err(CompilerError::NotAnArray(array.value_type()?)),
         }
+        */
     }
     fn eval_const_accessors(
         source: Value,
         accessors: &[Accessor],
     ) -> CompileResult<'a, Option<Value>> {
+        return Ok(Some(source));
+        todo!()
+        /*
         match accessors {
             [] => Ok(Some(source)),
             [Accessor::Index(Value::Constant(index)), tail @ ..] => {
@@ -906,12 +699,15 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             _ => Ok(None),
         }
+        */
     }
     fn eval_accessors(
         &mut self,
         accessed_value: AccessedValue,
         f: impl Fn(&mut Self, Value) -> CompileResult<'a, ()>,
     ) -> CompileResult<'a, ()> {
+        todo!()
+        /*
         fn eval_accessors_impl<'a>(
             compiler: &mut BrainCrabCompiler<'a>,
             source: Value,
@@ -952,6 +748,7 @@ impl<'a> BrainCrabCompiler<'a> {
             }
         }
         eval_accessors_impl(self, accessed_value.source, &accessed_value.accessors, &f)
+        */
     }
 
     fn eval_lvalue_expression(
@@ -975,7 +772,7 @@ impl<'a> BrainCrabCompiler<'a> {
 
     pub fn eval_expression(&mut self, expression: Expression<'a>) -> CompileResult<'a, Value> {
         match expression {
-            Expression::Constant(constant_value) => Ok(constant_value.into()),
+            Expression::Constant(constant_value) => Ok(self.value_from_const(constant_value)),
             Expression::LValue(expression) => {
                 let accessed_value = self.eval_lvalue_expression(expression)?;
                 if let Some(value) = Self::eval_const_accessors(
@@ -985,13 +782,14 @@ impl<'a> BrainCrabCompiler<'a> {
                     Ok(value)
                 } else {
                     let accessed_value_type = accessed_value.value_type()?;
-                    let temp = self.allocate(accessed_value_type)?;
+                    let temp = self.allocate(accessed_value_type);
                     self.eval_accessors(accessed_value, |compiler, value| {
-                        compiler.copy_on_top_of_cells(value, &[temp.address])
+                        compiler.copy_and_add_values(value, &[temp.borrow()])
                     })?;
-                    Ok(temp.into())
+                    Ok(temp)
                 }
             }
+            Expression::Read => Ok(self.read()),
             Expression::Add(a, b) => {
                 let a = self.eval_expression(*a)?;
                 let b = self.eval_expression(*b)?;
@@ -1073,8 +871,8 @@ impl<'a> BrainCrabCompiler<'a> {
             Expression::Constant(predicate) => {
                 if predicate.get_bool()? {
                     // Infinite loop
-                    let temp = self.new_owned(1)?;
-                    self.loop_while(temp.address, body)
+                    let temp = self.value_from_const(1);
+                    self.loop_while(temp.address(), body)
                 } else {
                     // Nothing to do here
                     Ok(())
@@ -1082,28 +880,15 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             Expression::LValue(LValueExpression::Variable(variable)) => {
                 let predicate = self.borrow_immutable(variable)?;
-                match predicate {
-                    Value::Constant(predicate) => {
-                        if predicate.get_bool()? {
-                            // Infinite loop
-                            let temp = self.new_owned(1)?;
-                            self.loop_while(temp.address, body)
-                        } else {
-                            // Nothing to do here
-                            Ok(())
-                        }
-                    }
-                    Value::LValue(predicate) => self.loop_while(predicate.address, body),
-                }
+                self.loop_while(predicate.address(), body)
             }
             _ => {
                 let predicate_value = self.eval_expression(predicate.clone())?;
                 let temp = self.new_owned(predicate_value)?;
-                self.loop_while(temp.address, |compiler| {
+                self.loop_while(temp.address(), |compiler| {
                     body(compiler)?;
                     let predicate_value = compiler.eval_expression(predicate)?;
-                    compiler.assign(temp.memory_slice(), predicate_value)?;
-                    Ok(())
+                    compiler.assign(temp.borrow(), predicate_value)
                 })
             }
         }
@@ -1113,9 +898,8 @@ impl<'a> BrainCrabCompiler<'a> {
     where
         F: Fn(&mut Self, Value) -> CompileResult<'a, ()>,
     {
-        let array_type = array.value_type()?;
-        if let Type::Array { len, .. } = array_type {
-            for i in 0..len {
+        if let Type::Array { len, .. } = &array.value_type {
+            for i in 0..*len {
                 self.scoped(|compiler| {
                     let element = Self::eval_const_index(&array.borrow(), i)?;
                     function(compiler, element)
@@ -1123,7 +907,7 @@ impl<'a> BrainCrabCompiler<'a> {
             }
             Ok(())
         } else {
-            Err(CompilerError::NotAnArray(array_type))
+            Err(CompilerError::NotAnArray(array.value_type))
         }
     }
 
@@ -1159,7 +943,7 @@ impl<'a> BrainCrabCompiler<'a> {
                 } => {
                     let value = self.eval_expression(value)?;
                     if let Some(value_type) = value_type {
-                        value.type_check(value_type)?;
+                        value.type_check(&value_type)?;
                     }
                     self.new_variable(name, value, mutable)?;
                 }
@@ -1167,26 +951,22 @@ impl<'a> BrainCrabCompiler<'a> {
                     let destination = self.eval_lvalue_expression(name)?;
                     let value = self.eval_expression(value)?;
                     self.eval_accessors(destination, |compiler, destination| {
-                        compiler.assign(destination.mutable()?.memory_slice(), value.borrow())
+                        compiler.assign(destination.borrow(), value.borrow())
                     })?;
                 }
                 Instruction::AddAssign { name, value } => {
                     let destination = self.borrow_mutable(name)?;
                     let value = self.eval_expression(value)?;
-                    self.add_assign(destination.address, value)?;
+                    self.add_assign(destination, value)?;
                 }
                 Instruction::SubAssign { name, value } => {
                     let destination = self.borrow_mutable(name)?;
                     let value = self.eval_expression(value)?;
-                    self.sub_assign(destination.address, value)?;
+                    self.sub_assign(destination, value)?;
                 }
                 Instruction::Write { expression } => {
                     let value = self.eval_expression(expression)?;
-                    self.write_value(value)?;
-                }
-                Instruction::Read { name } => {
-                    let destination = self.borrow_mutable(name)?;
-                    self.read(destination.address);
+                    self.write_value(value);
                 }
                 Instruction::Print { string } => {
                     self.print_string(string)?;
@@ -1205,7 +985,7 @@ impl<'a> BrainCrabCompiler<'a> {
                     else_body,
                 } => {
                     let predicate = self.eval_expression(predicate)?;
-                    predicate.type_check(Type::Bool)?;
+                    predicate.type_check(&Type::Bool)?;
                     if else_body.is_empty() {
                         self.if_then(predicate, |compiler| compiler.compile_instructions(if_body))?;
                     } else {

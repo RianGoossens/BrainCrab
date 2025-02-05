@@ -24,12 +24,12 @@ fn main() {
     let zero = program_builder.new_address(0);
     program_builder.write(zero);
 
-    let program = program_builder.program();
+    let program = program_builder.program().unwrap();
     println!("{:}", program);
     let mut program = ABFOptimizer::optimize_abf(&program);
     println!("Simplifying:\n{:}", program);
     program.clear_unused_variables();
-    program.optimize_frees();
+    program.insert_frees();
     println!("Adding frees and removing unused variables:\n{:}", program);
 
     let bf_program = ABFCompiler::compile_to_bf(&program);

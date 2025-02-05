@@ -667,6 +667,19 @@ impl BrainCrabParser {
         self.success(string, result, start_index, self.index - start_index)
     }
 
+    pub fn parse_read<'a>(&mut self, string: &'a str) -> ParseResult<'a, Expression<'a>> {
+        let start_location = self.index;
+        self.literal(string, "read")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, "(")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ")")?;
+        self.optional(string, Self::whitespace)?;
+        self.literal(string, ";")?;
+        let result = Expression::read();
+        self.success(string, result, start_location, self.index - start_location)
+    }
+
     pub fn parse_leaf_expression<'a>(
         &mut self,
         string: &'a str,
@@ -674,6 +687,7 @@ impl BrainCrabParser {
         self.one_of(
             string,
             &[
+                &Self::parse_read,
                 &Self::parse_constant_expression,
                 &Self::parse_lvalue_expression_expression,
                 &Self::parse_parens,
@@ -880,23 +894,6 @@ impl BrainCrabParser {
         self.success(string, result, start_location, self.index - start_location)
     }
 
-    pub fn parse_read<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
-        let start_location = self.index;
-        self.literal(string, "read")?;
-        self.optional(string, Self::whitespace)?;
-        self.literal(string, "(")?;
-        self.optional(string, Self::whitespace)?;
-        let variable_name = self.parse_variable_name(string)?.value;
-        self.optional(string, Self::whitespace)?;
-        self.literal(string, ")")?;
-        self.optional(string, Self::whitespace)?;
-        self.literal(string, ";")?;
-        let result = Instruction::Read {
-            name: variable_name,
-        };
-        self.success(string, result, start_location, self.index - start_location)
-    }
-
     pub fn parse_write<'a>(&mut self, string: &'a str) -> ParseResult<'a, Instruction<'a>> {
         let start_location = self.index;
         self.literal(string, "write")?;
@@ -1033,7 +1030,6 @@ impl BrainCrabParser {
                 &Self::parse_assignment,
                 &Self::parse_add_assignment,
                 &Self::parse_sub_assignment,
-                &Self::parse_read,
                 &Self::parse_write,
                 &Self::parse_print,
                 &Self::parse_scope,

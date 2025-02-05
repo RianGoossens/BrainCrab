@@ -2,6 +2,7 @@ use std::fs;
 use std::io::Result;
 
 use bf_core::BFInterpreter;
+use braincrab::abf::ABFCompiler;
 use braincrab::compiler::BrainCrabCompiler;
 use braincrab::parser::BrainCrabParser;
 
@@ -26,7 +27,7 @@ pub fn main() -> Result<()> {
 
     //compiled_abf.optimize_addresses(10000);
 
-    let compiled_bf = compiled_abf.to_bf();
+    let compiled_bf = ABFCompiler::compile_to_bf(&compiled_abf);
 
     println!("{}", compiled_bf.to_string());
 

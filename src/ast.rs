@@ -22,6 +22,7 @@ impl<'a> From<&'a str> for LValueExpression<'a> {
 pub enum Expression<'a> {
     Constant(ConstantValue),
     LValue(LValueExpression<'a>),
+    Read,
 
     Add(Box<Expression<'a>>, Box<Expression<'a>>),
     Sub(Box<Expression<'a>>, Box<Expression<'a>>),
@@ -44,6 +45,9 @@ pub enum Expression<'a> {
 impl<'a> Expression<'a> {
     pub fn constant(value: impl Into<ConstantValue>) -> Self {
         Self::Constant(value.into())
+    }
+    pub fn read() -> Self {
+        Self::Read
     }
     pub fn new_add(a: Expression<'a>, b: Expression<'a>) -> Self {
         Self::Add(Box::new(a), Box::new(b))
@@ -95,12 +99,6 @@ impl<'a, A: Into<ConstantValue>> From<A> for Expression<'a> {
     }
 }
 
-impl<'a> From<&'a str> for Expression<'a> {
-    fn from(value: &'a str) -> Self {
-        Expression::LValue(value.into())
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum Instruction<'a> {
     Define {
@@ -123,9 +121,6 @@ pub enum Instruction<'a> {
     },
     Write {
         expression: Expression<'a>,
-    },
-    Read {
-        name: &'a str,
     },
     Print {
         string: String,

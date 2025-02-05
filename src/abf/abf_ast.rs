@@ -118,7 +118,7 @@ impl ABFProgram {
         result
     }
 
-    pub fn optimize_frees(&mut self) {
+    pub fn insert_frees(&mut self) {
         // First clear out any existing frees, we can do better.
         self.instructions
             .retain(|x| !matches!(x, &ABFInstruction::Free(_)));
@@ -139,7 +139,7 @@ impl ABFProgram {
                 }
                 ABFInstruction::Free(_) => panic!("There should not be any frees at this point."),
                 ABFInstruction::While(address, body) => {
-                    Self::optimize_frees(body);
+                    Self::insert_frees(body);
                     if last_address_mention.contains_key(address) {
                         last_address_mention.insert(*address, index);
                     }

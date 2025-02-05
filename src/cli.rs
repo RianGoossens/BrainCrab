@@ -7,6 +7,7 @@ use clap::builder::styling::AnsiColor;
 use clap::builder::Styles;
 use clap::{Parser, Subcommand};
 
+use crate::abf::{ABFCompiler, ABFOptimizer};
 use crate::compiler::BrainCrabCompiler;
 use crate::parser::BrainCrabParser;
 
@@ -72,11 +73,18 @@ impl Cli {
         match parse_result {
             Ok(parsed) => {
                 let program = parsed.value;
+                println!("Compiling ABF...");
                 let compiled_abf = BrainCrabCompiler::compile_abf(program);
                 match compiled_abf {
-                    Ok(mut compiled_abf) => {
-                        compiled_abf.optimize_addresses(1000);
-                        let bf = compiled_abf.to_bf();
+                    Ok(compiled_abf) => {
+                        println!("Optimizing ABF...");
+                        let mut compiled_abf = ABFOptimizer::optimize_abf(&compiled_abf);
+                        compiled_abf.clear_unused_variables();
+                        compiled_abf.insert_frees();
+
+                        println!("Compiling to BF...");
+                        let bf = ABFCompiler::compile_to_bf(&compiled_abf);
+                        println!("Running BF...");
                         let mut interpreter = BFInterpreter::new();
                         interpreter.run(&bf);
                     }
@@ -102,11 +110,17 @@ impl Cli {
         match parse_result {
             Ok(parsed) => {
                 let program = parsed.value;
+                println!("Compiling ABF...");
                 let compiled_abf = BrainCrabCompiler::compile_abf(program);
                 match compiled_abf {
-                    Ok(mut compiled_abf) => {
-                        compiled_abf.optimize_addresses(1000);
-                        let bf = compiled_abf.to_bf().to_string();
+                    Ok(compiled_abf) => {
+                        println!("Optimizing ABF...");
+                        let mut compiled_abf = ABFOptimizer::optimize_abf(&compiled_abf);
+                        compiled_abf.clear_unused_variables();
+                        compiled_abf.insert_frees();
+
+                        println!("Compiling to BF...");
+                        let bf = ABFCompiler::compile_to_bf(&compiled_abf).to_string();
                         if let Some(output_path) = output {
                             fs::write(output_path, bf)?;
                         } else {

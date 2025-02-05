@@ -14,9 +14,12 @@ impl ABFProgramBuilder {
         }
     }
 
-    pub fn program(mut self) -> ABFProgram {
-        assert!(self.program_stack.len() == 1);
-        self.program_stack.pop().unwrap()
+    pub fn program(mut self) -> Option<ABFProgram> {
+        if self.program_stack.len() == 1 {
+            Some(self.program_stack.pop().unwrap())
+        } else {
+            None
+        }
     }
 
     fn add_instruction(&mut self, instruction: ABFInstruction) {
@@ -48,12 +51,27 @@ impl ABFProgramBuilder {
         self.add_instruction(ABFInstruction::Add(address, amount));
     }
 
-    pub fn while_loop(&mut self, address: u16, body_function: impl FnOnce(&mut ABFProgramBuilder)) {
+    pub fn start_loop(&mut self) {
         self.program_stack.push(ABFProgram::new(vec![]));
-        body_function(self);
+    }
+
+    pub fn end_loop(&mut self, address: u16) {
         let body = self.program_stack.pop().unwrap();
 
         self.add_instruction(ABFInstruction::While(address, body));
+    }
+
+    pub fn while_loop(&mut self, address: u16, body_function: impl FnOnce(&mut ABFProgramBuilder)) {
+        self.start_loop();
+        body_function(self);
+        self.end_loop(address);
+    }
+
+    // Utility functions
+    pub fn zero(&mut self, address: u16) {
+        self.while_loop(address, |builder| {
+            builder.add(address, -1);
+        });
     }
 }
 

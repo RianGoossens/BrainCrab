@@ -22,6 +22,32 @@ impl From<bool> for ConstantValue {
     }
 }
 
+impl From<char> for ConstantValue {
+    fn from(value: char) -> Self {
+        (value as u8).into()
+    }
+}
+
+impl<'a> From<&'a str> for ConstantValue {
+    fn from(value: &'a str) -> Self {
+        let chars: Vec<_> = value.chars().collect();
+        chars.into()
+    }
+}
+
+impl From<String> for ConstantValue {
+    fn from(value: String) -> Self {
+        let value: &str = &value;
+        value.into()
+    }
+}
+
+impl<A: Into<ConstantValue>> From<Vec<A>> for ConstantValue {
+    fn from(value: Vec<A>) -> Self {
+        ConstantValue::Array(value.into_iter().map(|x| x.into()).collect())
+    }
+}
+
 impl ConstantValue {
     pub fn data(&self) -> Vec<u8> {
         fn data_impl(source: &ConstantValue, result: &mut Vec<u8>) {

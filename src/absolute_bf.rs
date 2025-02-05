@@ -93,13 +93,13 @@ impl ABFTree {
 }
 
 #[derive(Debug)]
-pub struct ABFProgram {
+pub struct OldABFProgram {
     pub body: Vec<ABFTree>,
 }
 
-impl ABFProgram {
+impl OldABFProgram {
     pub fn new() -> Self {
-        ABFProgram { body: vec![] }
+        OldABFProgram { body: vec![] }
     }
     pub fn push_instruction(&mut self, instruction: ABFTree) {
         match (&instruction, self.body.last_mut()) {
@@ -112,7 +112,7 @@ impl ABFProgram {
         }
     }
 
-    pub fn append(&mut self, rhs: ABFProgram) {
+    pub fn append(&mut self, rhs: OldABFProgram) {
         for instruction in rhs.body {
             self.push_instruction(instruction);
         }
@@ -145,7 +145,7 @@ impl ABFProgram {
     }
 }
 
-impl Default for ABFProgram {
+impl Default for OldABFProgram {
     fn default() -> Self {
         Self::new()
     }

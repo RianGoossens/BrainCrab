@@ -182,6 +182,6 @@ impl ABFOptimizer {
         let mut address_map = BTreeMap::new();
         let mut program_builder = ABFProgramBuilder::new();
         Self::optimize_abf_impl(program, &mut state, &mut address_map, &mut program_builder);
-        program_builder.program()
+        program_builder.program().unwrap()
     }
 }
