@@ -2,7 +2,6 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use crate::{
     abf::{ABFProgram, ABFProgramBuilder},
-    absolute_bf::OldABFProgram,
     allocator::BrainCrabAllocator,
     ast::{Expression, Instruction, LValueExpression, Program},
     compiler_error::{CompileResult, CompilerError},
@@ -95,7 +94,6 @@ impl AccessedValue {
 }
 
 pub struct BrainCrabCompiler<'a> {
-    pub program_stack: Vec<OldABFProgram>,
     pub variable_map: ScopedVariableMap<'a>,
     pub old_address_pool: AddressPool,
     pub builder: ABFProgramBuilder,
@@ -104,7 +102,6 @@ pub struct BrainCrabCompiler<'a> {
 impl<'a> Default for BrainCrabCompiler<'a> {
     fn default() -> Self {
         Self {
-            program_stack: vec![OldABFProgram::new()],
             variable_map: Default::default(),
             old_address_pool: Rc::new(RefCell::new(BrainCrabAllocator::new())),
             builder: ABFProgramBuilder::new(),
