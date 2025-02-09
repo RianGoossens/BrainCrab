@@ -5,7 +5,7 @@ let to_uppercase = 'A' - 'a';
 
 mut x = 0;
 while x != '\n' {
-    read(x);
+    x = read();
     
     if x != '\n' {
         if x >= 'a' & x <= 'z' {

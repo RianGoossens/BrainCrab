@@ -703,6 +703,8 @@ impl<'a> BrainCrabCompiler<'a> {
         accessed_value: AccessedValue,
         f: impl Fn(&mut Self, Value) -> CompileResult<'a, ()>,
     ) -> CompileResult<'a, ()> {
+        return f(self, accessed_value.source);
+
         todo!()
         /*
         fn eval_accessors_impl<'a>(

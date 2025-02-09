@@ -113,6 +113,9 @@ impl ABFOptimizer {
                 ABFInstruction::While(address, body) => {
                     let cell = state.get_cell(*address);
                     assert!(cell.used);
+                    // if cell.value == ABFValue::CompileTime(0) {
+                    //     continue;
+                    // }
                     let mut new_state = state.clone();
                     let mut new_address_map = address_map.clone();
                     let mut new_program_builder = program_builder.clone();

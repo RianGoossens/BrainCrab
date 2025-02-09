@@ -674,8 +674,6 @@ impl BrainCrabParser {
         self.literal(string, "(")?;
         self.optional(string, Self::whitespace)?;
         self.literal(string, ")")?;
-        self.optional(string, Self::whitespace)?;
-        self.literal(string, ";")?;
         let result = Expression::read();
         self.success(string, result, start_location, self.index - start_location)
     }

@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::{self, stdin, BufRead};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use bf_core::{BFInterpreter, BFProgram};
 use clap::builder::styling::AnsiColor;
@@ -73,6 +74,7 @@ impl Cli {
         match parse_result {
             Ok(parsed) => {
                 let program = parsed.value;
+                let start_time = Instant::now();
                 println!("Compiling ABF...");
                 let compiled_abf = BrainCrabCompiler::compile_abf(program);
                 match compiled_abf {
@@ -84,6 +86,7 @@ impl Cli {
 
                         println!("Compiling to BF...");
                         let bf = ABFCompiler::compile_to_bf(&compiled_abf);
+                        println!("Compile time: {:?}", start_time.elapsed());
                         println!("Running BF...");
                         let mut interpreter = BFInterpreter::new();
                         interpreter.run(&bf);

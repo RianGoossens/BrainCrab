@@ -1,5 +1,5 @@
 mut x = 0;
-while x != '\n' {
-    read(x);
+while true {
+    x = read();
     write(x);
 }

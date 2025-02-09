@@ -2,8 +2,7 @@ print("Hello World!\n");
 
 mut looping = true;
 while looping {
-    mut x = 0;
-    read(x);
+    let x = read();
     write(x);
     if x == '\n' {
         looping = false;
