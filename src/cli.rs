@@ -113,6 +113,7 @@ impl Cli {
         match parse_result {
             Ok(parsed) => {
                 let program = parsed.value;
+                let start_time = Instant::now();
                 println!("Compiling ABF...");
                 let compiled_abf = BrainCrabCompiler::compile_abf(program);
                 match compiled_abf {
@@ -124,6 +125,7 @@ impl Cli {
 
                         println!("Compiling to BF...");
                         let bf = ABFCompiler::compile_to_bf(&compiled_abf).to_string();
+                        println!("Compile time: {:?}", start_time.elapsed());
                         if let Some(output_path) = output {
                             fs::write(output_path, bf)?;
                         } else {

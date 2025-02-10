@@ -61,68 +61,74 @@ impl ABFState {
     }
 }
 
-pub struct ABFOptimizer;
+#[derive(Clone)]
+pub struct ABFOptimizer {
+    state: ABFState,
+    address_map: BTreeMap<u16, u16>,
+    builder: ABFProgramBuilder,
+}
 
 impl ABFOptimizer {
-    fn optimize_abf_impl(
-        abf: &ABFProgram,
-        state: &mut ABFState,
-        address_map: &mut BTreeMap<u16, u16>,
-        program_builder: &mut ABFProgramBuilder,
-    ) {
+    fn new() -> Self {
+        Self {
+            state: ABFState::new(),
+            address_map: BTreeMap::new(),
+            builder: ABFProgramBuilder::new(),
+        }
+    }
+
+    fn optimize_abf_impl(&mut self, abf: &ABFProgram) {
         for instruction in &abf.instructions {
             match instruction {
                 ABFInstruction::New(address, value) => {
-                    state.set_value(*address, *value);
+                    self.state.set_value(*address, *value);
                 }
                 ABFInstruction::Read(address) => {
-                    state.set_value(*address, ABFValue::Runtime);
-                    let destination_address = program_builder.read();
-                    address_map.insert(*address, destination_address);
+                    self.state.set_value(*address, ABFValue::Runtime);
+                    let destination_address = self.builder.read();
+                    self.address_map.insert(*address, destination_address);
                 }
                 ABFInstruction::Free(_address) => {
                     // Do nothing
                 }
                 ABFInstruction::Write(address) => {
-                    let cell = state.get_cell_mut(*address);
+                    let cell = self.state.get_cell_mut(*address);
                     assert!(cell.used);
                     match cell.value {
                         ABFValue::CompileTime(value) => {
-                            let destination_address = program_builder.new_address(value);
-                            program_builder.write(destination_address);
+                            let destination_address = self.builder.new_address(value);
+                            self.builder.write(destination_address);
                         }
                         ABFValue::Runtime => {
-                            let destination_address = *address_map.get(address).unwrap();
-                            program_builder.write(destination_address);
+                            let destination_address = *self.address_map.get(address).unwrap();
+                            self.builder.write(destination_address);
                         }
                     }
                 }
                 ABFInstruction::Add(address, amount) => {
-                    let cell = state.get_cell_mut(*address);
+                    let cell = self.state.get_cell_mut(*address);
                     assert!(cell.used);
                     match &mut cell.value {
                         ABFValue::CompileTime(value) => {
                             *value = value.wrapping_add(*amount as u8);
                         }
                         ABFValue::Runtime => {
-                            let destination_address = *address_map.get(address).unwrap();
-                            program_builder.add(destination_address, *amount);
+                            let destination_address = *self.address_map.get(address).unwrap();
+                            self.builder.add(destination_address, *amount);
                         }
                     }
                 }
                 ABFInstruction::While(address, body) => {
-                    let cell = state.get_cell(*address);
+                    let cell = self.state.get_cell(*address);
                     assert!(cell.used);
-                    // if cell.value == ABFValue::CompileTime(0) {
-                    //     continue;
-                    // }
-                    let mut new_state = state.clone();
-                    let mut new_address_map = address_map.clone();
-                    let mut new_program_builder = program_builder.clone();
+                    if cell.value == ABFValue::CompileTime(0) {
+                        continue;
+                    }
+                    let mut new_optimizer = self.clone();
 
                     let mut unrolled_successfully = false;
                     for _ in 0..10000 {
-                        let cell = new_state.get_cell(*address);
+                        let cell = new_optimizer.state.get_cell(*address);
                         if cell.value == ABFValue::CompileTime(0) {
                             unrolled_successfully = true;
                             break;
@@ -132,59 +138,51 @@ impl ABFOptimizer {
                             break;
                         }
 
-                        Self::optimize_abf_impl(
-                            body,
-                            &mut new_state,
-                            &mut new_address_map,
-                            &mut new_program_builder,
-                        );
+                        new_optimizer.optimize_abf_impl(body);
                     }
 
                     if unrolled_successfully {
-                        *state = new_state;
-                        *address_map = new_address_map;
-                        *program_builder = new_program_builder;
+                        *self = new_optimizer;
                     } else {
                         // Since we don't know how this loop will run, any modified addresses
                         // in this loop become unknown
                         let modified_addresses = body.modified_addresses();
                         for modified_address in &modified_addresses {
-                            let cell = state.get_cell_mut(*modified_address);
+                            let cell = self.state.get_cell_mut(*modified_address);
                             if cell.used {
                                 if let ABFValue::CompileTime(x) = cell.value {
-                                    let destination_address = program_builder.new_address(x);
-                                    address_map.insert(*modified_address, destination_address);
+                                    let destination_address = self.builder.new_address(x);
+                                    self.address_map
+                                        .insert(*modified_address, destination_address);
                                 }
                                 cell.value = ABFValue::Runtime;
                             }
                         }
 
-                        let destination_address = *address_map.get(address).unwrap();
-                        program_builder.while_loop(destination_address, |program_builder| {
-                            Self::optimize_abf_impl(body, state, address_map, program_builder);
-                        });
+                        let destination_address = *self.address_map.get(address).unwrap();
+                        self.builder.start_loop();
+                        self.optimize_abf_impl(body);
+                        self.builder.end_loop(destination_address);
 
                         // We need to make sure that all modified addresses are still marked as
                         // runtime after the loop, since there is no way to guarantee if the loop
                         // will even run.
                         for modified_address in modified_addresses {
-                            let cell = state.get_cell_mut(modified_address);
+                            let cell = self.state.get_cell_mut(modified_address);
                             if cell.used {
                                 cell.value = ABFValue::Runtime;
                             }
                         }
                     }
-                    state.set_value(*address, 0);
+                    self.state.set_value(*address, 0);
                 }
             }
         }
     }
 
     pub fn optimize_abf(program: &ABFProgram) -> ABFProgram {
-        let mut state = ABFState::new();
-        let mut address_map = BTreeMap::new();
-        let mut program_builder = ABFProgramBuilder::new();
-        Self::optimize_abf_impl(program, &mut state, &mut address_map, &mut program_builder);
-        program_builder.program().unwrap()
+        let mut optimizer = Self::new();
+        optimizer.optimize_abf_impl(program);
+        optimizer.builder.program().unwrap()
     }
 }
