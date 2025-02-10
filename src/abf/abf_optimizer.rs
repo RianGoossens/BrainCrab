@@ -77,6 +77,14 @@ impl ABFOptimizer {
         }
     }
 
+    fn set_mapped_address(&mut self, source: u16, destination: u16) {
+        self.address_map.insert(source, destination);
+    }
+
+    fn get_mapped_address(&self, source: u16) -> u16 {
+        *self.address_map.get(&source).unwrap()
+    }
+
     fn optimize_abf_impl(&mut self, abf: &ABFProgram) {
         for instruction in &abf.instructions {
             match instruction {
@@ -86,7 +94,7 @@ impl ABFOptimizer {
                 ABFInstruction::Read(address) => {
                     self.state.set_value(*address, ABFValue::Runtime);
                     let destination_address = self.builder.read();
-                    self.address_map.insert(*address, destination_address);
+                    self.set_mapped_address(*address, destination_address);
                 }
                 ABFInstruction::Free(_address) => {
                     // Do nothing
@@ -100,7 +108,7 @@ impl ABFOptimizer {
                             self.builder.write(destination_address);
                         }
                         ABFValue::Runtime => {
-                            let destination_address = *self.address_map.get(address).unwrap();
+                            let destination_address = self.get_mapped_address(*address);
                             self.builder.write(destination_address);
                         }
                     }
@@ -113,7 +121,7 @@ impl ABFOptimizer {
                             *value = value.wrapping_add(*amount as u8);
                         }
                         ABFValue::Runtime => {
-                            let destination_address = *self.address_map.get(address).unwrap();
+                            let destination_address = self.get_mapped_address(*address);
                             self.builder.add(destination_address, *amount);
                         }
                     }
@@ -148,18 +156,17 @@ impl ABFOptimizer {
                         // in this loop become unknown
                         let modified_addresses = body.modified_addresses();
                         for modified_address in &modified_addresses {
-                            let cell = self.state.get_cell_mut(*modified_address);
+                            let cell = self.state.get_cell(*modified_address);
                             if cell.used {
                                 if let ABFValue::CompileTime(x) = cell.value {
                                     let destination_address = self.builder.new_address(x);
-                                    self.address_map
-                                        .insert(*modified_address, destination_address);
+                                    self.set_mapped_address(*modified_address, destination_address);
                                 }
-                                cell.value = ABFValue::Runtime;
+                                self.state.set_value(*modified_address, ABFValue::Runtime);
                             }
                         }
 
-                        let destination_address = *self.address_map.get(address).unwrap();
+                        let destination_address = self.get_mapped_address(*address);
                         self.builder.start_loop();
                         self.optimize_abf_impl(body);
                         self.builder.end_loop(destination_address);
