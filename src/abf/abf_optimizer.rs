@@ -14,50 +14,33 @@ impl From<u8> for ABFValue {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ABFCell {
-    pub value: ABFValue,
-    pub used: bool,
-}
-
-impl ABFCell {
-    pub fn new(value: impl Into<ABFValue>, used: bool) -> Self {
-        Self {
-            value: value.into(),
-            used,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct ABFState {
-    pub values: Vec<ABFCell>,
+    pub values: Vec<ABFValue>,
 }
 
 impl ABFState {
     pub fn new() -> Self {
         Self {
-            values: vec![ABFCell::new(0, false); 30000],
+            values: vec![0.into(); 30000],
         }
     }
 
-    pub fn get_cell(&mut self, address: u16) -> ABFCell {
+    pub fn get_cell(&mut self, address: u16) -> ABFValue {
         self.values[address as usize]
     }
 
-    pub fn get_cell_mut(&mut self, address: u16) -> &mut ABFCell {
+    pub fn get_cell_mut(&mut self, address: u16) -> &mut ABFValue {
         self.values.get_mut(address as usize).unwrap()
     }
 
     pub fn set_value(&mut self, address: u16, value: impl Into<ABFValue>) {
         let cell = self.get_cell_mut(address);
-        cell.value = value.into();
-        cell.used = true;
+        *cell = value.into();
     }
 
-    pub fn free(&mut self, address: u16) {
-        let cell = self.get_cell_mut(address);
-        cell.used = false;
+    pub fn free(&mut self, _address: u16) {
+        //No op
     }
 }
 
@@ -101,10 +84,9 @@ impl ABFOptimizer {
                 }
                 ABFInstruction::Write(address) => {
                     let cell = self.state.get_cell_mut(*address);
-                    assert!(cell.used);
-                    match cell.value {
+                    match cell {
                         ABFValue::CompileTime(value) => {
-                            let destination_address = self.builder.new_address(value);
+                            let destination_address = self.builder.new_address(*value);
                             self.builder.write(destination_address);
                         }
                         ABFValue::Runtime => {
@@ -115,8 +97,7 @@ impl ABFOptimizer {
                 }
                 ABFInstruction::Add(address, amount) => {
                     let cell = self.state.get_cell_mut(*address);
-                    assert!(cell.used);
-                    match &mut cell.value {
+                    match cell {
                         ABFValue::CompileTime(value) => {
                             *value = value.wrapping_add(*amount as u8);
                         }
@@ -128,42 +109,38 @@ impl ABFOptimizer {
                 }
                 ABFInstruction::While(address, body) => {
                     let cell = self.state.get_cell(*address);
-                    assert!(cell.used);
-                    if cell.value == ABFValue::CompileTime(0) {
+                    if cell == ABFValue::CompileTime(0) {
                         continue;
                     }
-                    let mut new_optimizer = self.clone();
+                    let old_optimizer = self.clone();
 
                     let mut unrolled_successfully = false;
                     for _ in 0..10000 {
-                        let cell = new_optimizer.state.get_cell(*address);
-                        if cell.value == ABFValue::CompileTime(0) {
+                        let cell = self.state.get_cell(*address);
+                        if cell == ABFValue::CompileTime(0) {
                             unrolled_successfully = true;
                             break;
                         }
-                        if cell.value == ABFValue::Runtime {
+                        if cell == ABFValue::Runtime {
                             unrolled_successfully = false;
                             break;
                         }
 
-                        new_optimizer.optimize_abf_impl(body);
+                        self.optimize_abf_impl(body);
                     }
 
-                    if unrolled_successfully {
-                        *self = new_optimizer;
-                    } else {
+                    if !unrolled_successfully {
+                        *self = old_optimizer;
                         // Since we don't know how this loop will run, any modified addresses
                         // in this loop become unknown
                         let modified_addresses = body.modified_addresses();
                         for modified_address in &modified_addresses {
                             let cell = self.state.get_cell(*modified_address);
-                            if cell.used {
-                                if let ABFValue::CompileTime(x) = cell.value {
-                                    let destination_address = self.builder.new_address(x);
-                                    self.set_mapped_address(*modified_address, destination_address);
-                                }
-                                self.state.set_value(*modified_address, ABFValue::Runtime);
+                            if let ABFValue::CompileTime(x) = cell {
+                                let destination_address = self.builder.new_address(x);
+                                self.set_mapped_address(*modified_address, destination_address);
                             }
+                            self.state.set_value(*modified_address, ABFValue::Runtime);
                         }
 
                         let destination_address = self.get_mapped_address(*address);
@@ -176,9 +153,7 @@ impl ABFOptimizer {
                         // will even run.
                         for modified_address in modified_addresses {
                             let cell = self.state.get_cell_mut(modified_address);
-                            if cell.used {
-                                cell.value = ABFValue::Runtime;
-                            }
+                            *cell = ABFValue::Runtime;
                         }
                     }
                     self.state.set_value(*address, 0);
