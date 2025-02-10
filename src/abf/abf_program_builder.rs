@@ -2,31 +2,24 @@ use super::{ABFInstruction, ABFProgram};
 
 #[derive(Clone)]
 pub struct ABFProgramBuilder {
-    program_stack: Vec<ABFProgram>,
+    program: ABFProgram,
     value_counter: u16,
 }
 
 impl ABFProgramBuilder {
     pub fn new() -> Self {
         Self {
-            program_stack: vec![ABFProgram::new(vec![])],
+            program: ABFProgram::new(vec![]),
             value_counter: 0,
         }
     }
 
-    pub fn program(mut self) -> Option<ABFProgram> {
-        if self.program_stack.len() == 1 {
-            Some(self.program_stack.pop().unwrap())
-        } else {
-            None
-        }
+    pub fn build(self) -> ABFProgram {
+        self.program
     }
 
     fn add_instruction(&mut self, instruction: ABFInstruction) {
-        self.program_stack
-            .last_mut()
-            .unwrap()
-            .add_instruction(instruction);
+        self.program.add_instruction(instruction);
     }
 
     pub fn new_address(&mut self, value: u8) -> u16 {
@@ -51,20 +44,31 @@ impl ABFProgramBuilder {
         self.add_instruction(ABFInstruction::Add(address, amount));
     }
 
-    pub fn start_loop(&mut self) {
-        self.program_stack.push(ABFProgram::new(vec![]));
+    pub fn create_child(&self) -> Self {
+        Self {
+            program: ABFProgram::new(vec![]),
+            value_counter: self.value_counter,
+        }
     }
 
-    pub fn end_loop(&mut self, address: u16) {
-        let body = self.program_stack.pop().unwrap();
+    pub fn merge_child(&mut self, rhs: Self) {
+        self.value_counter = rhs.value_counter;
+        self.program.merge(rhs.build());
+    }
 
-        self.add_instruction(ABFInstruction::While(address, body));
+    pub fn start_loop(&mut self) -> Self {
+        self.create_child()
+    }
+
+    pub fn end_loop(&mut self, address: u16, body_builder: ABFProgramBuilder) {
+        self.value_counter = body_builder.value_counter;
+        self.add_instruction(ABFInstruction::While(address, body_builder.program));
     }
 
     pub fn while_loop(&mut self, address: u16, body_function: impl FnOnce(&mut ABFProgramBuilder)) {
-        self.start_loop();
-        body_function(self);
-        self.end_loop(address);
+        let mut body_builder = self.start_loop();
+        body_function(&mut body_builder);
+        self.end_loop(address, body_builder);
     }
 
     // Utility functions

@@ -102,6 +102,10 @@ impl ABFProgram {
         self.instructions.push(instruction);
     }
 
+    pub fn merge(&mut self, mut rhs: Self) {
+        self.instructions.append(&mut rhs.instructions);
+    }
+
     pub fn mentioned_addresses(&self) -> BTreeSet<u16> {
         let mut result = BTreeSet::new();
         for instruction in &self.instructions {

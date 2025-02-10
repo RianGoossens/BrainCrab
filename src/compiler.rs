@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
+use std::{cell::RefCell, collections::BTreeMap, mem::swap, rc::Rc};
 
 use crate::{
     abf::{ABFProgram, ABFProgramBuilder},
@@ -115,11 +115,7 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     pub fn get_result(self) -> CompileResult<'a, ABFProgram> {
-        if let Some(result) = self.builder.program() {
-            Ok(result)
-        } else {
-            Err(CompilerError::UnclosedLoop)
-        }
+        Ok(self.builder.build())
     }
 
     // Memory management
@@ -240,9 +236,11 @@ impl<'a> BrainCrabCompiler<'a> {
         f: impl FnOnce(&mut Self) -> CompileResult<'a, ()>,
     ) -> CompileResult<'a, ()> {
         self.scoped(|compiler| {
-            compiler.builder.start_loop();
+            let mut body_builder = compiler.builder.start_loop();
+            swap(&mut body_builder, &mut compiler.builder);
             f(compiler)?;
-            compiler.builder.end_loop(predicate);
+            swap(&mut body_builder, &mut compiler.builder);
+            compiler.builder.end_loop(predicate, body_builder);
             Ok(())
         })
     }

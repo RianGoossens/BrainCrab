@@ -24,7 +24,7 @@ fn main() {
     let zero = program_builder.new_address(0);
     program_builder.write(zero);
 
-    let program = program_builder.program().unwrap();
+    let program = program_builder.build();
     println!("{:}", program);
     let mut program = ABFOptimizer::optimize_abf(&program);
     println!("Simplifying:\n{:}", program);

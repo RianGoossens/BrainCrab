@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, mem::swap};
 
 use super::{ABFInstruction, ABFProgram, ABFProgramBuilder};
 
@@ -21,26 +21,18 @@ pub struct ABFState {
 
 impl ABFState {
     pub fn new() -> Self {
-        Self {
-            values: vec![0.into(); 30000],
-        }
+        Self { values: vec![] }
     }
 
-    pub fn get_cell(&mut self, address: u16) -> ABFValue {
+    pub fn get_value(&self, address: u16) -> ABFValue {
         self.values[address as usize]
     }
 
-    pub fn get_cell_mut(&mut self, address: u16) -> &mut ABFValue {
-        self.values.get_mut(address as usize).unwrap()
-    }
-
     pub fn set_value(&mut self, address: u16, value: impl Into<ABFValue>) {
-        let cell = self.get_cell_mut(address);
-        *cell = value.into();
-    }
-
-    pub fn free(&mut self, _address: u16) {
-        //No op
+        if address as usize >= self.values.len() {
+            self.values.resize(address as usize + 1, 0.into());
+        }
+        self.values[address as usize] = value.into();
     }
 }
 
@@ -58,6 +50,20 @@ impl ABFOptimizer {
             address_map: BTreeMap::new(),
             builder: ABFProgramBuilder::new(),
         }
+    }
+
+    fn create_child(&self) -> Self {
+        Self {
+            state: self.state.clone(),
+            address_map: self.address_map.clone(),
+            builder: self.builder.create_child(),
+        }
+    }
+
+    fn merge_child(&mut self, rhs: Self) {
+        self.state = rhs.state;
+        self.address_map = rhs.address_map;
+        self.builder.merge_child(rhs.builder);
     }
 
     fn set_mapped_address(&mut self, source: u16, destination: u16) {
@@ -83,10 +89,10 @@ impl ABFOptimizer {
                     // Do nothing
                 }
                 ABFInstruction::Write(address) => {
-                    let cell = self.state.get_cell_mut(*address);
+                    let cell = self.state.get_value(*address);
                     match cell {
                         ABFValue::CompileTime(value) => {
-                            let destination_address = self.builder.new_address(*value);
+                            let destination_address = self.builder.new_address(value);
                             self.builder.write(destination_address);
                         }
                         ABFValue::Runtime => {
@@ -96,10 +102,11 @@ impl ABFOptimizer {
                     }
                 }
                 ABFInstruction::Add(address, amount) => {
-                    let cell = self.state.get_cell_mut(*address);
+                    let cell = self.state.get_value(*address);
                     match cell {
                         ABFValue::CompileTime(value) => {
-                            *value = value.wrapping_add(*amount as u8);
+                            self.state
+                                .set_value(*address, value.wrapping_add(*amount as u8));
                         }
                         ABFValue::Runtime => {
                             let destination_address = self.get_mapped_address(*address);
@@ -108,34 +115,37 @@ impl ABFOptimizer {
                     }
                 }
                 ABFInstruction::While(address, body) => {
-                    let cell = self.state.get_cell(*address);
+                    let cell = self.state.get_value(*address);
                     if cell == ABFValue::CompileTime(0) {
                         continue;
                     }
-                    let old_optimizer = self.clone();
+                    let mut child_optimizer = self.create_child();
 
                     let mut unrolled_successfully = false;
                     for _ in 0..10000 {
-                        let cell = self.state.get_cell(*address);
-                        if cell == ABFValue::CompileTime(0) {
-                            unrolled_successfully = true;
-                            break;
-                        }
-                        if cell == ABFValue::Runtime {
-                            unrolled_successfully = false;
-                            break;
+                        let predicate = child_optimizer.state.get_value(*address);
+                        match predicate {
+                            ABFValue::CompileTime(0) => {
+                                unrolled_successfully = true;
+                                break;
+                            }
+                            ABFValue::Runtime => {
+                                break;
+                            }
+                            _ => {}
                         }
 
-                        self.optimize_abf_impl(body);
+                        child_optimizer.optimize_abf_impl(body);
                     }
 
-                    if !unrolled_successfully {
-                        *self = old_optimizer;
+                    if unrolled_successfully {
+                        self.merge_child(child_optimizer);
+                    } else {
                         // Since we don't know how this loop will run, any modified addresses
                         // in this loop become unknown
                         let modified_addresses = body.modified_addresses();
                         for modified_address in &modified_addresses {
-                            let cell = self.state.get_cell(*modified_address);
+                            let cell = self.state.get_value(*modified_address);
                             if let ABFValue::CompileTime(x) = cell {
                                 let destination_address = self.builder.new_address(x);
                                 self.set_mapped_address(*modified_address, destination_address);
@@ -144,16 +154,17 @@ impl ABFOptimizer {
                         }
 
                         let destination_address = self.get_mapped_address(*address);
-                        self.builder.start_loop();
+                        let mut body_builder = self.builder.start_loop();
+                        swap(&mut body_builder, &mut self.builder);
                         self.optimize_abf_impl(body);
-                        self.builder.end_loop(destination_address);
+                        swap(&mut body_builder, &mut self.builder);
+                        self.builder.end_loop(destination_address, body_builder);
 
                         // We need to make sure that all modified addresses are still marked as
                         // runtime after the loop, since there is no way to guarantee if the loop
                         // will even run.
                         for modified_address in modified_addresses {
-                            let cell = self.state.get_cell_mut(modified_address);
-                            *cell = ABFValue::Runtime;
+                            self.state.set_value(modified_address, ABFValue::Runtime);
                         }
                     }
                     self.state.set_value(*address, 0);
@@ -165,6 +176,6 @@ impl ABFOptimizer {
     pub fn optimize_abf(program: &ABFProgram) -> ABFProgram {
         let mut optimizer = Self::new();
         optimizer.optimize_abf_impl(program);
-        optimizer.builder.program().unwrap()
+        optimizer.builder.build()
     }
 }
