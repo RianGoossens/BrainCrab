@@ -6,7 +6,7 @@ use std::time::Instant;
 use bf_core::{BFInterpreter, BFProgram};
 use clap::builder::styling::AnsiColor;
 use clap::builder::Styles;
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 
 use crate::abf::{ABFCompiler, ABFOptimizer};
 use crate::compiler::BrainCrabCompiler;
@@ -34,10 +34,16 @@ enum Commands {
         path: PathBuf,
         #[arg(short, long)]
         output: Option<PathBuf>,
+        #[arg(short, long, default_value = "false", default_missing_value = "true", num_args=0..=1, action=ArgAction::Set)]
+        verbose: bool,
     },
 
     /// Run a BrainCrab script as Brainfuck.
-    Run { path: PathBuf },
+    Run {
+        path: PathBuf,
+        #[arg(short, long, default_value = "false", default_missing_value = "true", num_args=0..=1, action=ArgAction::Set)]
+        verbose: bool,
+    },
 
     /// BF Commands
     #[command(subcommand)]
@@ -59,14 +65,18 @@ enum BFCommands {
 impl Cli {
     pub fn start(self) -> io::Result<()> {
         match self.command {
-            Commands::Run { path } => Self::run(path),
-            Commands::Compile { path, output } => Self::compile(path, output),
+            Commands::Run { path, verbose } => Self::run(path, verbose),
+            Commands::Compile {
+                path,
+                output,
+                verbose,
+            } => Self::compile(path, output, verbose),
             Commands::BF(BFCommands::Run { path }) => Self::bf_run(path),
             Commands::BF(BFCommands::Repl) => Self::bf_repl(),
         }
     }
 
-    fn run(path: PathBuf) -> io::Result<()> {
+    fn create_bf(path: PathBuf, verbose: bool) -> io::Result<BFProgram> {
         let script = fs::read_to_string(&path)?;
         let mut parser = BrainCrabParser::new();
         let parse_result = parser.parse_program(&script);
@@ -75,73 +85,58 @@ impl Cli {
             Ok(parsed) => {
                 let program = parsed.value;
                 let start_time = Instant::now();
-                println!("Compiling ABF...");
+                if verbose {
+                    println!("Compiling ABF...");
+                }
                 let compiled_abf = BrainCrabCompiler::compile_abf(program);
                 match compiled_abf {
                     Ok(compiled_abf) => {
-                        println!("Optimizing ABF...");
+                        if verbose {
+                            println!("Optimizing ABF...");
+                        }
                         let mut compiled_abf = ABFOptimizer::optimize_abf(&compiled_abf);
                         compiled_abf.clear_unused_variables();
                         compiled_abf.insert_frees();
 
-                        println!("Compiling to BF...");
+                        if verbose {
+                            println!("Compiling to BF...");
+                        }
                         let bf = ABFCompiler::compile_to_bf(&compiled_abf);
-                        println!("Compile time: {:?}", start_time.elapsed());
-                        println!("Running BF...");
-                        let mut interpreter = BFInterpreter::new();
-                        interpreter.run(&bf);
+                        if verbose {
+                            println!("Compile time: {:?}", start_time.elapsed());
+                        }
+                        Ok(bf)
                     }
                     Err(error) => {
                         eprintln!("Encountered error while compiling {path:?}:");
-                        eprintln!("{error:?}");
+                        panic!("{error:?}");
                     }
                 }
             }
             Err(error) => {
                 eprintln!("Encountered error while parsing {path:?}:");
-                eprintln!("{error}")
+                panic!("{error}");
             }
         }
+    }
+
+    fn run(path: PathBuf, verbose: bool) -> io::Result<()> {
+        let bf = Self::create_bf(path, verbose)?;
+        if verbose {
+            println!("Running BF...");
+        }
+        let mut interpreter = BFInterpreter::new();
+        interpreter.run(&bf);
         Ok(())
     }
 
-    fn compile(path: PathBuf, output: Option<PathBuf>) -> io::Result<()> {
-        let script = fs::read_to_string(&path)?;
-        let mut parser = BrainCrabParser::new();
-        let parse_result = parser.parse_program(&script);
-
-        match parse_result {
-            Ok(parsed) => {
-                let program = parsed.value;
-                let start_time = Instant::now();
-                println!("Compiling ABF...");
-                let compiled_abf = BrainCrabCompiler::compile_abf(program);
-                match compiled_abf {
-                    Ok(compiled_abf) => {
-                        println!("Optimizing ABF...");
-                        let mut compiled_abf = ABFOptimizer::optimize_abf(&compiled_abf);
-                        compiled_abf.clear_unused_variables();
-                        compiled_abf.insert_frees();
-
-                        println!("Compiling to BF...");
-                        let bf = ABFCompiler::compile_to_bf(&compiled_abf).to_string();
-                        println!("Compile time: {:?}", start_time.elapsed());
-                        if let Some(output_path) = output {
-                            fs::write(output_path, bf)?;
-                        } else {
-                            println!("{bf}");
-                        }
-                    }
-                    Err(error) => {
-                        eprintln!("Encountered error while compiling {path:?}:");
-                        eprintln!("{error:?}");
-                    }
-                }
-            }
-            Err(error) => {
-                eprintln!("Encountered error while parsing {path:?}:");
-                eprintln!("{error}")
-            }
+    fn compile(path: PathBuf, output: Option<PathBuf>, verbose: bool) -> io::Result<()> {
+        let bf = Self::create_bf(path, verbose)?;
+        let bf_string = bf.to_string();
+        if let Some(output_path) = output {
+            fs::write(output_path, bf_string)?;
+        } else {
+            println!("{bf_string}");
         }
         Ok(())
     }

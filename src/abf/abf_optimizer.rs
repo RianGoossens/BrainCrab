@@ -25,7 +25,11 @@ impl ABFState {
     }
 
     pub fn get_value(&self, address: u16) -> ABFValue {
-        self.values[address as usize]
+        if address as usize >= self.values.len() {
+            0.into()
+        } else {
+            self.values[address as usize]
+        }
     }
 
     pub fn set_value(&mut self, address: u16, value: impl Into<ABFValue>) {
@@ -89,17 +93,13 @@ impl ABFOptimizer {
                     // Do nothing
                 }
                 ABFInstruction::Write(address) => {
-                    let cell = self.state.get_value(*address);
-                    match cell {
-                        ABFValue::CompileTime(value) => {
-                            let destination_address = self.builder.new_address(value);
-                            self.builder.write(destination_address);
-                        }
-                        ABFValue::Runtime => {
-                            let destination_address = self.get_mapped_address(*address);
-                            self.builder.write(destination_address);
-                        }
-                    }
+                    let value = self.state.get_value(*address);
+                    let destination_address = match value {
+                        ABFValue::CompileTime(value) => self.builder.new_address(value),
+                        ABFValue::Runtime => self.get_mapped_address(*address),
+                    };
+                    self.set_mapped_address(*address, destination_address);
+                    self.builder.write(destination_address);
                 }
                 ABFInstruction::Add(address, amount) => {
                     let cell = self.state.get_value(*address);
@@ -153,7 +153,12 @@ impl ABFOptimizer {
                             self.state.set_value(*modified_address, ABFValue::Runtime);
                         }
 
-                        let destination_address = self.get_mapped_address(*address);
+                        let value = self.state.get_value(*address);
+                        let destination_address = match value {
+                            ABFValue::CompileTime(value) => self.builder.new_address(value),
+                            ABFValue::Runtime => self.get_mapped_address(*address),
+                        };
+                        self.set_mapped_address(*address, destination_address);
                         let mut body_builder = self.builder.start_loop();
                         swap(&mut body_builder, &mut self.builder);
                         self.optimize_abf_impl(body);

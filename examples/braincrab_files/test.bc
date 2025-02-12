@@ -1,5 +1,10 @@
-if 1 < 1 {
-    write('a');
-} else {
-    write('b');
+mut i = 0;
+while i < 20 {
+    print("start loop\n");
+    let k = read();
+    if k == '\n' {
+        write('a');
+    }
+    i = i + 1;
+    print("\nend loop\n");
 }

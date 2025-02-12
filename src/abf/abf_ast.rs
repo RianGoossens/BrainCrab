@@ -48,7 +48,9 @@ impl Display for ABFInstruction {
 impl ABFInstruction {
     fn collect_modified_addresses(&self, addresses: &mut BTreeSet<u16>) {
         match self {
-            ABFInstruction::Read(address) | ABFInstruction::Add(address, _) => {
+            ABFInstruction::New(address, _)
+            | ABFInstruction::Read(address)
+            | ABFInstruction::Add(address, _) => {
                 addresses.insert(*address);
             }
             ABFInstruction::While(address, body) => {

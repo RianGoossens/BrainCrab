@@ -191,9 +191,11 @@ impl ABFCompiler {
                                 builder.add(value_offset);
                             } else {
                                 builder.zero();
+                                builder.add(*value);
                             }
                         } else {
                             builder.zero();
+                            builder.add(*value);
                         }
                         compiler.set_value(bf_address, *value);
                     }
