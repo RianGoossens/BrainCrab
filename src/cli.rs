@@ -6,7 +6,7 @@ use std::time::Instant;
 use bf_core::{BFInterpreter, BFProgram};
 use clap::builder::styling::AnsiColor;
 use clap::builder::Styles;
-use clap::{ArgAction, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand};
 
 use crate::abf::{ABFCompiler, ABFOptimizer};
 use crate::compiler::BrainCrabCompiler;
@@ -26,6 +26,12 @@ pub struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
+#[derive(Args)]
+#[group(multiple = false)]
+struct CompileArgs {
+    #[arg(short, long, default_value = "false", default_missing_value = "true", num_args=0..=1, action=ArgAction::Set)]
+    verbose: bool,
+}
 
 #[derive(Subcommand)]
 enum Commands {
@@ -34,15 +40,15 @@ enum Commands {
         path: PathBuf,
         #[arg(short, long)]
         output: Option<PathBuf>,
-        #[arg(short, long, default_value = "false", default_missing_value = "true", num_args=0..=1, action=ArgAction::Set)]
-        verbose: bool,
+        #[group(flatten)]
+        compile_args: CompileArgs,
     },
 
     /// Run a BrainCrab script as Brainfuck.
     Run {
         path: PathBuf,
-        #[arg(short, long, default_value = "false", default_missing_value = "true", num_args=0..=1, action=ArgAction::Set)]
-        verbose: bool,
+        #[group(flatten)]
+        compile_args: CompileArgs,
     },
 
     /// BF Commands
@@ -65,18 +71,19 @@ enum BFCommands {
 impl Cli {
     pub fn start(self) -> io::Result<()> {
         match self.command {
-            Commands::Run { path, verbose } => Self::run(path, verbose),
+            Commands::Run { path, compile_args } => Self::run(path, compile_args),
             Commands::Compile {
                 path,
                 output,
-                verbose,
-            } => Self::compile(path, output, verbose),
+                compile_args,
+            } => Self::compile(path, output, compile_args),
             Commands::BF(BFCommands::Run { path }) => Self::bf_run(path),
             Commands::BF(BFCommands::Repl) => Self::bf_repl(),
         }
     }
 
-    fn create_bf(path: PathBuf, verbose: bool) -> io::Result<BFProgram> {
+    fn create_bf(path: PathBuf, compile_args: CompileArgs) -> io::Result<BFProgram> {
+        let verbose = compile_args.verbose;
         let script = fs::read_to_string(&path)?;
         let mut parser = BrainCrabParser::new();
         let parse_result = parser.parse_program(&script);
@@ -120,8 +127,9 @@ impl Cli {
         }
     }
 
-    fn run(path: PathBuf, verbose: bool) -> io::Result<()> {
-        let bf = Self::create_bf(path, verbose)?;
+    fn run(path: PathBuf, compile_args: CompileArgs) -> io::Result<()> {
+        let verbose = compile_args.verbose;
+        let bf = Self::create_bf(path, compile_args)?;
         if verbose {
             println!("Running BF...");
         }
@@ -130,8 +138,12 @@ impl Cli {
         Ok(())
     }
 
-    fn compile(path: PathBuf, output: Option<PathBuf>, verbose: bool) -> io::Result<()> {
-        let bf = Self::create_bf(path, verbose)?;
+    fn compile(
+        path: PathBuf,
+        output: Option<PathBuf>,
+        compile_args: CompileArgs,
+    ) -> io::Result<()> {
+        let bf = Self::create_bf(path, compile_args)?;
         let bf_string = bf.to_string();
         if let Some(output_path) = output {
             fs::write(output_path, bf_string)?;
