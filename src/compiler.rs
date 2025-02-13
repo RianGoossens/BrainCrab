@@ -665,32 +665,12 @@ impl<'a> BrainCrabCompiler<'a> {
             _ => Err(CompilerError::NotAnArray(array.value_type.clone())),
         }
     }
-    fn eval_const_accessors(
-        source: Value,
-        accessors: &[Accessor],
-    ) -> CompileResult<'a, Option<Value>> {
-        return Ok(Some(source));
-        todo!()
-        /*
-        match accessors {
-            [] => Ok(Some(source)),
-            [Accessor::Index(Value::Constant(index)), tail @ ..] => {
-                let indexed_value = Self::eval_const_index(&source, index.get_u8()?)?;
-                Self::eval_const_accessors(indexed_value, tail)
-            }
-            _ => Ok(None),
-        }
-        */
-    }
+
     fn eval_accessors(
         &mut self,
         accessed_value: AccessedValue,
         f: impl Fn(&mut Self, Value) -> CompileResult<'a, ()>,
     ) -> CompileResult<'a, ()> {
-        return f(self, accessed_value.source);
-
-        todo!()
-        /*
         fn eval_accessors_impl<'a>(
             compiler: &mut BrainCrabCompiler<'a>,
             source: Value,
@@ -700,38 +680,31 @@ impl<'a> BrainCrabCompiler<'a> {
             match accessors {
                 [] => f(compiler, source),
                 [accessor, tail @ ..] => match accessor {
-                    Accessor::Index(index) => match index {
-                        Value::Constant(index) => {
-                            let indexed_value =
-                                BrainCrabCompiler::eval_const_index(&source, index.get_u8()?)?;
-                            eval_accessors_impl(compiler, indexed_value, tail, f)
-                        }
-                        Value::LValue(index) => {
-                            let array_type = source.value_type()?;
-                            if let Type::Array { len, .. } = array_type {
-                                for i in 0..len {
-                                    let array = source.borrow();
-                                    compiler.scoped(|compiler| {
-                                        let predicate = compiler
-                                            .eval_equals(i.into(), index.borrow().into())?;
-                                        compiler.if_then(predicate, |compiler| {
-                                            let indexed_value =
-                                                BrainCrabCompiler::eval_const_index(&array, i)?;
-                                            eval_accessors_impl(compiler, indexed_value, tail, f)
-                                        })
-                                    })?;
-                                }
-                                Ok(())
-                            } else {
-                                Err(CompilerError::NotAnArray(array_type))
+                    Accessor::Index(index) => {
+                        let array_type = &source.value_type;
+                        if let Type::Array { len, .. } = array_type {
+                            for i in 0..*len {
+                                let array = source.borrow();
+                                compiler.scoped(|compiler| {
+                                    let i_value = compiler.value_from_const(i);
+                                    let predicate =
+                                        compiler.eval_equals(i_value, index.borrow())?;
+                                    compiler.if_then(predicate, |compiler| {
+                                        let indexed_value =
+                                            BrainCrabCompiler::eval_const_index(&array, i)?;
+                                        eval_accessors_impl(compiler, indexed_value, tail, f)
+                                    })
+                                })?;
                             }
+                            Ok(())
+                        } else {
+                            Err(CompilerError::NotAnArray(array_type.clone()))
                         }
-                    },
+                    }
                 },
             }
         }
         eval_accessors_impl(self, accessed_value.source, &accessed_value.accessors, &f)
-        */
     }
 
     fn eval_lvalue_expression(
@@ -758,19 +731,12 @@ impl<'a> BrainCrabCompiler<'a> {
             Expression::Constant(constant_value) => Ok(self.value_from_const(constant_value)),
             Expression::LValue(expression) => {
                 let accessed_value = self.eval_lvalue_expression(expression)?;
-                if let Some(value) = Self::eval_const_accessors(
-                    accessed_value.source.borrow(),
-                    &accessed_value.accessors,
-                )? {
-                    Ok(value)
-                } else {
-                    let accessed_value_type = accessed_value.value_type()?;
-                    let temp = self.allocate(accessed_value_type);
-                    self.eval_accessors(accessed_value, |compiler, value| {
-                        compiler.copy_and_add_values(value, &[temp.borrow()])
-                    })?;
-                    Ok(temp)
-                }
+                let accessed_value_type = accessed_value.value_type()?;
+                let temp = self.allocate(accessed_value_type);
+                self.eval_accessors(accessed_value, |compiler, value| {
+                    compiler.copy_and_add_values(value, &[temp.borrow()])
+                })?;
+                Ok(temp)
             }
             Expression::Read => Ok(self.read()),
             Expression::Add(a, b) => {

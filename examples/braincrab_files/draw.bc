@@ -1,19 +1,15 @@
 mut screen = [['_';5];5];
 
-mut column = 0;
-mut row = 0;
-mut char = 0;
-mut newline = 0;
-while char != '\n' {
+while true {
     for i in [0..5] {
         for j in [0..5] {
             write(screen[i, j]);
         }
         write('\n');
     }
-    read(column);
-    read(row);
-    read(char);
-    read(newline);
+    let column = read();
+    let row = read();
+    let char = read();
+    let newline = read();
     screen[column - '0', row - '0'] = char;
 }

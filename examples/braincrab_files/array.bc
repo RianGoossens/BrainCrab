@@ -36,3 +36,5 @@ write(my_array[ 1  + index  ]);
 
 mut mutable_array = ['a'..'z'];
 write(mutable_array[1]);
+mutable_array[1] = 'x';
+write(mutable_array[1]);
