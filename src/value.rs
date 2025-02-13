@@ -39,6 +39,17 @@ impl Value {
         !self.is_owned()
     }
 
+    pub fn borrow_slice(&self, start_index: u16, end_index: u16, slice_type: Type) -> Self {
+        let length = end_index - start_index;
+        assert!(length == slice_type.size());
+        Self {
+            addresses: self.addresses[start_index as usize..end_index as usize].into(),
+            value_type: slice_type,
+            owned: false,
+            mutable: self.mutable,
+        }
+    }
+
     pub fn type_check<'a>(&self, expected: &Type) -> CompileResult<'a, ()> {
         let actual = &self.value_type;
         if actual == expected {

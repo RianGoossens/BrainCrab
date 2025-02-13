@@ -130,12 +130,10 @@ impl<'a> BrainCrabCompiler<'a> {
     pub fn register_variable(&mut self, name: &'a str, value: Value) -> CompileResult<'a, Value> {
         if self.variable_map.defined_in_current_scope(name) {
             Err(CompilerError::AlreadyDefinedVariable(name))
-        } else if value.is_owned() {
+        } else {
             let borrowed = value.borrow();
             self.variable_map.register(name, value);
             Ok(borrowed)
-        } else {
-            Err(CompilerError::CantRegisterBorrowedValues(name))
         }
     }
 
@@ -658,26 +656,14 @@ impl<'a> BrainCrabCompiler<'a> {
     }
 
     fn eval_const_index(array: &Value, index: u8) -> CompileResult<'a, Value> {
-        todo!()
-        /*
-        // Do bounds checks
-        match array {
-            Value::Constant(ConstantValue::Array(array)) => {
-                Ok(array[index as usize].clone().into())
+        match &array.value_type {
+            Type::Array { element_type, .. } => {
+                let start_index = index as u16 * element_type.size();
+                let end_index = start_index + element_type.size();
+                Ok(array.borrow_slice(start_index, end_index, element_type.as_ref().clone()))
             }
-            Value::LValue(array) => match &array.value_type {
-                Type::Array { element_type, .. } => Ok(LValue {
-                    address: array.address + index as u16 * element_type.size(),
-                    value_type: element_type.as_ref().clone(),
-                    mutable: array.mutable,
-                    address_pool: None,
-                }
-                .into()),
-                _ => Err(CompilerError::NotAnArray(array.value_type.clone())),
-            },
-            _ => Err(CompilerError::NotAnArray(array.value_type()?)),
+            _ => Err(CompilerError::NotAnArray(array.value_type.clone())),
         }
-        */
     }
     fn eval_const_accessors(
         source: Value,
