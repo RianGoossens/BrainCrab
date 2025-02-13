@@ -6,7 +6,7 @@ use std::time::Instant;
 use bf_core::{BFInterpreter, BFProgram};
 use clap::builder::styling::AnsiColor;
 use clap::builder::Styles;
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 use crate::abf::{ABFCompiler, ABFOptimizer};
 use crate::compiler::BrainCrabCompiler;
@@ -26,11 +26,20 @@ pub struct Cli {
     #[command(subcommand)]
     command: Commands,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum OptimizeMode {
+    None,
+    Speed,
+}
+
 #[derive(Args)]
-#[group(multiple = false)]
+#[group()]
 struct CompileArgs {
     #[arg(short, long, default_value = "false", default_missing_value = "true", num_args=0..=1, action=ArgAction::Set)]
     verbose: bool,
+    #[arg(short, long, default_value = "speed")]
+    optimize: OptimizeMode,
 }
 
 #[derive(Subcommand)]
@@ -97,13 +106,15 @@ impl Cli {
                 }
                 let compiled_abf = BrainCrabCompiler::compile_abf(program);
                 match compiled_abf {
-                    Ok(compiled_abf) => {
-                        if verbose {
-                            println!("Optimizing ABF...");
+                    Ok(mut compiled_abf) => {
+                        if compile_args.optimize == OptimizeMode::Speed {
+                            if verbose {
+                                println!("Optimizing ABF...");
+                            }
+                            compiled_abf = ABFOptimizer::optimize_abf(&compiled_abf);
+                            compiled_abf.clear_unused_variables();
+                            compiled_abf.insert_frees();
                         }
-                        let mut compiled_abf = ABFOptimizer::optimize_abf(&compiled_abf);
-                        compiled_abf.clear_unused_variables();
-                        compiled_abf.insert_frees();
 
                         if verbose {
                             println!("Compiling to BF...");
@@ -111,6 +122,7 @@ impl Cli {
                         let bf = ABFCompiler::compile_to_bf(&compiled_abf);
                         if verbose {
                             println!("Compile time: {:?}", start_time.elapsed());
+                            println!("Size: {:?}", bf.to_string().len());
                         }
                         Ok(bf)
                     }
