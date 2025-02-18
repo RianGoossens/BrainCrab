@@ -1,5 +1,5 @@
-let array = ['a'..'z'];
-
-for i in array {
-    write(i + 1);
+mut x = 1;
+while x <= 5 {
+    write(x);
+    x += 1;
 }

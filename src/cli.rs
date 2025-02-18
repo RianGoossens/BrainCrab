@@ -47,7 +47,7 @@ enum Commands {
     /// Compile a BrainCrab script to Brainfuck.
     Compile {
         path: PathBuf,
-        #[arg(short, long)]
+        #[arg(long)]
         output: Option<PathBuf>,
         #[group(flatten)]
         compile_args: CompileArgs,
@@ -115,6 +115,7 @@ impl Cli {
                             compiled_abf.clear_unused_variables();
                             compiled_abf.insert_frees();
                         }
+                        println!("{compiled_abf}");
 
                         if verbose {
                             println!("Compiling to BF...");
