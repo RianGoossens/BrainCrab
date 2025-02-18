@@ -88,8 +88,8 @@ impl ABFOptimizer {
         self.address_map.insert(source, destination);
     }
 
-    fn check_mapped_address(&self, source: u16) -> Option<u16> {
-        self.address_map.get(&source).copied()
+    fn get_mapped_address(&self, source: u16) -> u16 {
+        *self.address_map.get(&source).unwrap()
     }
 
     fn create_or_reuse_mapped_address(&mut self, address: u16) -> u16 {
@@ -126,7 +126,7 @@ impl ABFOptimizer {
                     let value = self.state.get_value(*address);
                     let destination_address = match value {
                         ABFValue::CompileTime(value) => self.builder.new_address(value),
-                        ABFValue::Runtime => self.check_mapped_address(*address).unwrap(),
+                        ABFValue::Runtime => self.get_mapped_address(*address),
                     };
                     self.set_mapped_address(*address, destination_address);
                     self.builder.write(destination_address);
@@ -136,7 +136,7 @@ impl ABFOptimizer {
                         self.state
                             .set_value(*address, value.wrapping_add(*amount as u8));
                     } else {
-                        let destination_address = self.check_mapped_address(*address).unwrap();
+                        let destination_address = self.get_mapped_address(*address);
                         self.builder.add(destination_address, *amount);
                     }
                 }
