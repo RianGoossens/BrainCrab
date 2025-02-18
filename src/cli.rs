@@ -115,7 +115,7 @@ impl Cli {
                             compiled_abf.clear_unused_variables();
                             compiled_abf.insert_frees();
                         }
-                        println!("{compiled_abf}");
+                        // println!("{compiled_abf}");
 
                         if verbose {
                             println!("Compiling to BF...");

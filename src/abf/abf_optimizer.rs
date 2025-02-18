@@ -136,8 +136,8 @@ impl ABFOptimizer {
                         self.state
                             .set_value(*address, value.wrapping_add(*amount as u8));
                     } else {
-                        let mapped_address = self.check_mapped_address(*address).unwrap();
-                        self.builder.add(mapped_address, *amount);
+                        let destination_address = self.check_mapped_address(*address).unwrap();
+                        self.builder.add(destination_address, *amount);
                     }
                 }
                 ABFInstruction::While(address, body) => {
@@ -145,31 +145,36 @@ impl ABFOptimizer {
                     if predicate == ABFValue::CompileTime(0) {
                         continue;
                     }
-                    let mut child_optimizer = self.create_child();
-
                     let mut unrolled_successfully = false;
-                    for _ in 0..10000 {
-                        let predicate = child_optimizer.state.get_value(*address);
-                        match predicate {
-                            ABFValue::CompileTime(0) => {
-                                unrolled_successfully = true;
-                                break;
-                            }
-                            ABFValue::Runtime => {
-                                break;
-                            }
-                            _ => {}
-                        }
+                    let modified_addresses = body.modified_addresses();
 
-                        child_optimizer.optimize_abf_impl(body);
+                    // We first try to unroll this loop unless it's infinite or runtime dependent.
+                    if modified_addresses.contains(address) && predicate != ABFValue::Runtime {
+                        let mut child_optimizer = self.create_child();
+
+                        for _ in 0..10000 {
+                            let predicate = child_optimizer.state.get_value(*address);
+                            match predicate {
+                                ABFValue::CompileTime(0) => {
+                                    unrolled_successfully = true;
+                                    break;
+                                }
+                                ABFValue::Runtime => {
+                                    break;
+                                }
+                                _ => {}
+                            }
+
+                            child_optimizer.optimize_abf_impl(body);
+                        }
+                        if unrolled_successfully {
+                            self.merge_child(child_optimizer);
+                        }
                     }
 
-                    if unrolled_successfully {
-                        self.merge_child(child_optimizer);
-                    } else {
+                    if !unrolled_successfully {
                         // Since we don't know how this loop will run, any modified addresses
                         // in this loop that are defined outside become unknown.
-                        let modified_addresses = body.modified_addresses();
                         for modified_address in &modified_addresses {
                             if self.state.is_used(*modified_address) {
                                 let _ = self.create_or_reuse_mapped_address(*modified_address);
