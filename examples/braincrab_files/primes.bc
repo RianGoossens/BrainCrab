@@ -1,0 +1,26 @@
+print("2 ");
+mut i: u8 = 3;
+while i < 100 {
+
+    mut is_prime = true;
+    mut j = 2;
+    while j < i - 1 {
+        if i % j == 0 {
+            is_prime = false;
+        }
+        j += 1;
+    }
+
+    if is_prime {
+        if i >= 100 {
+            write('0' + i / 100);
+        }
+        if i >= 10 {
+            write('0' + i % 100 / 10);
+        }
+        write('0' + i % 10);
+
+        print(" ");
+    }
+    i += 1;
+}

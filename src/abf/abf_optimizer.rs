@@ -15,28 +15,24 @@ impl From<u8> for ABFValue {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct ABFState {
+struct ABFState {
     values: Vec<ABFValue>,
     used: Vec<bool>,
 }
 
 impl ABFState {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             values: vec![],
             used: vec![],
         }
     }
 
-    pub fn is_used(&self, address: u16) -> bool {
-        if let Some(used) = self.used.get(address as usize) {
-            *used
-        } else {
-            false
-        }
+    fn is_used(&self, address: u16) -> bool {
+        *self.used.get(address as usize).unwrap()
     }
 
-    pub fn get_value(&self, address: u16) -> ABFValue {
+    fn get_value(&self, address: u16) -> ABFValue {
         if let Some(value) = self.values.get(address as usize) {
             *value
         } else {
@@ -44,7 +40,7 @@ impl ABFState {
         }
     }
 
-    pub fn set_value(&mut self, address: u16, value: impl Into<ABFValue>) {
+    fn set_value(&mut self, address: u16, value: impl Into<ABFValue>) {
         if address as usize >= self.values.len() {
             self.values.resize(address as usize + 1, 0.into());
             self.used.resize(address as usize + 1, false);
@@ -152,7 +148,7 @@ impl ABFOptimizer {
                     if modified_addresses.contains(address) && predicate != ABFValue::Runtime {
                         let mut child_optimizer = self.create_child();
 
-                        for _ in 0..10000 {
+                        for _ in 0..255 * 255 {
                             let predicate = child_optimizer.state.get_value(*address);
                             match predicate {
                                 ABFValue::CompileTime(0) => {
