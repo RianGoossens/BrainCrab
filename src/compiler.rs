@@ -16,7 +16,7 @@ pub struct ScopedVariableMap<'a> {
     pub variable_map_stack: Vec<BTreeMap<&'a str, Value>>,
 }
 
-impl<'a> Default for ScopedVariableMap<'a> {
+impl Default for ScopedVariableMap<'_> {
     fn default() -> Self {
         Self {
             variable_map_stack: vec![BTreeMap::new()],
@@ -99,7 +99,7 @@ pub struct BrainCrabCompiler<'a> {
     pub builder: ABFProgramBuilder,
 }
 
-impl<'a> Default for BrainCrabCompiler<'a> {
+impl Default for BrainCrabCompiler<'_> {
     fn default() -> Self {
         Self {
             variable_map: Default::default(),

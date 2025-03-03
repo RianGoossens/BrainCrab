@@ -93,7 +93,7 @@ impl<'a> Expression<'a> {
     }
 }
 
-impl<'a, A: Into<ConstantValue>> From<A> for Expression<'a> {
+impl<A: Into<ConstantValue>> From<A> for Expression<'_> {
     fn from(value: A) -> Self {
         Self::constant(value)
     }

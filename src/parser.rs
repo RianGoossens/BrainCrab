@@ -35,7 +35,7 @@ pub struct ParseError<'a> {
     index: usize,
 }
 
-impl<'a> Display for ParseError<'a> {
+impl Display for ParseError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut line_start = 0;
         let mut line_end = usize::MAX;
