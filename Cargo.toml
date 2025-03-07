@@ -7,6 +7,9 @@ description = """
 BrainCrab
 A Brainfuck cli with various utilities included."""
 
+[profile.release]
+debug = true
+
 [dependencies]
 bf_core = { path = "bf_core" }
 bf_macros = { path = "bf_macros" }
