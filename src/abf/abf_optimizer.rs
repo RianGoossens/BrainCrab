@@ -2,6 +2,21 @@ use std::{collections::BTreeMap, mem::swap};
 
 use super::{ABFInstruction, ABFProgram, ABFProgramBuilder};
 
+#[derive(Debug, Clone)]
+pub enum AnalyzedABFInstruction {
+    New(u16, u8),
+    Read(u16),
+    Write(u16),
+    Add(u16, i8),
+    While(u16, AnalyzedABFProgram),
+}
+
+#[derive(Debug, Clone)]
+pub struct AnalyzedABFProgram {
+    pub instructions: Vec<AnalyzedABFInstruction>,
+    pub modified_addresses: Vec<u16>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ABFValue {
     Runtime,
@@ -66,6 +81,44 @@ impl ABFOptimizer {
         }
     }
 
+    fn analyze_abf_program(program: &ABFProgram) -> AnalyzedABFProgram {
+        let mut modified_addresses = vec![];
+        let mut analyzed_instructions = vec![];
+        for instruction in &program.instructions {
+            match instruction {
+                ABFInstruction::New(address, value) => {
+                    modified_addresses.push(*address);
+                    analyzed_instructions.push(AnalyzedABFInstruction::New(*address, *value));
+                }
+                ABFInstruction::Read(address) => {
+                    modified_addresses.push(*address);
+                    analyzed_instructions.push(AnalyzedABFInstruction::Read(*address));
+                }
+                ABFInstruction::Free(_) => {}
+                ABFInstruction::Write(address) => {
+                    analyzed_instructions.push(AnalyzedABFInstruction::Write(*address));
+                }
+                ABFInstruction::Add(address, value) => {
+                    modified_addresses.push(*address);
+                    analyzed_instructions.push(AnalyzedABFInstruction::Add(*address, *value));
+                }
+                ABFInstruction::While(predicate, body) => {
+                    let analyzed_body = Self::analyze_abf_program(body);
+                    modified_addresses.push(*predicate);
+                    modified_addresses.extend_from_slice(&analyzed_body.modified_addresses);
+                    analyzed_instructions
+                        .push(AnalyzedABFInstruction::While(*predicate, analyzed_body));
+                }
+            }
+        }
+        modified_addresses.sort();
+        modified_addresses.dedup();
+        AnalyzedABFProgram {
+            instructions: analyzed_instructions,
+            modified_addresses,
+        }
+    }
+
     fn create_child(&self) -> Self {
         Self {
             state: self.state.clone(),
@@ -116,21 +169,18 @@ impl ABFOptimizer {
         }
     }
 
-    fn optimize_abf_impl(&mut self, abf: &ABFProgram) {
+    fn optimize_abf_impl(&mut self, abf: &AnalyzedABFProgram) {
         for instruction in &abf.instructions {
             match instruction {
-                ABFInstruction::New(address, value) => {
+                AnalyzedABFInstruction::New(address, value) => {
                     self.set_value(*address, *value);
                 }
-                ABFInstruction::Read(address) => {
+                AnalyzedABFInstruction::Read(address) => {
                     self.set_value(*address, ABFValue::Runtime);
                     let destination_address = self.builder.read();
                     self.set_mapped_address(*address, destination_address);
                 }
-                ABFInstruction::Free(_address) => {
-                    // Do nothing
-                }
-                ABFInstruction::Write(address) => {
+                AnalyzedABFInstruction::Write(address) => {
                     let value = self.get_value(*address);
                     let destination_address = match value {
                         ABFValue::CompileTime(value) => self.builder.new_address(value),
@@ -139,7 +189,7 @@ impl ABFOptimizer {
                     self.set_mapped_address(*address, destination_address);
                     self.builder.write(destination_address);
                 }
-                ABFInstruction::Add(address, amount) => {
+                AnalyzedABFInstruction::Add(address, amount) => {
                     if let ABFValue::CompileTime(value) = self.get_value(*address) {
                         self.set_value(*address, value.wrapping_add(*amount as u8));
                     } else {
@@ -147,13 +197,13 @@ impl ABFOptimizer {
                         self.builder.add(destination_address, *amount);
                     }
                 }
-                ABFInstruction::While(address, body) => {
+                AnalyzedABFInstruction::While(address, body) => {
                     let predicate = self.get_value(*address);
                     if predicate == ABFValue::CompileTime(0) {
                         continue;
                     }
                     let mut unrolled_successfully = false;
-                    let modified_addresses = body.modified_addresses();
+                    let modified_addresses = &body.modified_addresses;
 
                     // We first try to unroll this loop unless it's infinite or runtime dependent.
                     if modified_addresses.contains(address) && predicate != ABFValue::Runtime {
@@ -182,7 +232,7 @@ impl ABFOptimizer {
                     if !unrolled_successfully {
                         // Since we don't know how this loop will run, any modified addresses
                         // in this loop that are defined outside become unknown.
-                        for modified_address in &modified_addresses {
+                        for modified_address in modified_addresses {
                             if self.address_is_used(*modified_address) {
                                 let _ = self.create_or_reuse_mapped_address(*modified_address);
                                 self.set_value(*modified_address, ABFValue::Runtime);
@@ -201,7 +251,7 @@ impl ABFOptimizer {
                         // runtime after the loop, since there is no way to guarantee if the loop
                         // will even run.
                         for modified_address in modified_addresses {
-                            self.set_value(modified_address, ABFValue::Runtime);
+                            self.set_value(*modified_address, ABFValue::Runtime);
                         }
                     }
                     self.set_value(*address, 0);
@@ -212,7 +262,8 @@ impl ABFOptimizer {
 
     pub fn optimize_abf(program: &ABFProgram) -> ABFProgram {
         let mut optimizer = Self::new();
-        optimizer.optimize_abf_impl(program);
+        let analyzed_program = Self::analyze_abf_program(program);
+        optimizer.optimize_abf_impl(&analyzed_program);
         optimizer.builder.build()
     }
 }
