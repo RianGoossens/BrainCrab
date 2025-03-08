@@ -1,0 +1,30 @@
+mut sieve = [false; 100];
+sieve[0] = true;
+sieve[1] = true;
+
+{
+    mut i = 2;
+    while i < 100 {
+        mut j = i + i;
+        while j < 100 {
+            sieve[j] = true;
+            j += i;
+        }
+        i += 1;
+    }
+}
+mut i = 2;
+while i < 100 {
+    if !sieve[i] {
+        if i >= 100 {
+            write('0' + i / 100);
+        }
+        if i >= 10 {
+            write('0' + i % 100 / 10);
+        }
+        write('0' + i % 10);
+
+        print(" ");
+    }
+    i += 1;
+}
