@@ -15,6 +15,7 @@ pub enum AnalyzedABFInstruction {
 pub struct AnalyzedABFProgram {
     pub instructions: Vec<AnalyzedABFInstruction>,
     pub modified_addresses: Vec<u16>,
+    pub mentioned_addresses: Vec<u16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,24 +32,51 @@ impl From<u8> for ABFValue {
 
 #[derive(Debug, Clone, Default)]
 struct ABFState {
+    offset: u16,
     values: Vec<ABFValue>,
     used: Vec<bool>,
 }
 
 impl ABFState {
-    fn new() -> Self {
+    fn new(start: u16, end: u16) -> Self {
+        assert!(end >= start);
+        let len = end + 1 - start;
         Self {
-            values: vec![],
-            used: vec![],
+            offset: start,
+            values: vec![0.into(); len as usize],
+            used: vec![false; len as usize],
         }
     }
 
+    fn create_child(&self, start: u16, end: u16) -> Self {
+        assert!(end >= start);
+        assert!(start >= self.offset);
+        let start_offset = start - self.offset;
+        let end_offset = end - self.offset + 1;
+        Self {
+            offset: start,
+            values: self.values[start_offset as usize..end_offset as usize].to_vec(),
+            used: self.used[start_offset as usize..end_offset as usize].to_vec(),
+        }
+    }
+
+    fn merge_child(&mut self, child: Self) {
+        assert!(child.offset >= self.offset);
+        assert!(
+            child.offset as usize + child.values.len() <= self.offset as usize + self.values.len()
+        );
+        let start_offset = child.offset - self.offset;
+        let end_offset = child.offset + child.values.len() as u16 - self.offset;
+        self.values[start_offset as usize..end_offset as usize].copy_from_slice(&child.values);
+        self.used[start_offset as usize..end_offset as usize].copy_from_slice(&child.used);
+    }
+
     fn is_used(&self, address: u16) -> bool {
-        *self.used.get(address as usize).unwrap()
+        *self.used.get((address - self.offset) as usize).unwrap()
     }
 
     fn get_value(&self, address: u16) -> ABFValue {
-        if let Some(value) = self.values.get(address as usize) {
+        if let Some(value) = self.values.get((address - self.offset) as usize) {
             *value
         } else {
             0.into()
@@ -56,12 +84,8 @@ impl ABFState {
     }
 
     fn set_value(&mut self, address: u16, value: impl Into<ABFValue>) {
-        if address as usize >= self.values.len() {
-            self.values.resize(address as usize + 1, 0.into());
-            self.used.resize(address as usize + 1, false);
-        }
-        self.values[address as usize] = value.into();
-        self.used[address as usize] = true;
+        self.values[(address - self.offset) as usize] = value.into();
+        self.used[(address - self.offset) as usize] = true;
     }
 }
 
@@ -73,9 +97,11 @@ pub struct ABFOptimizer {
 }
 
 impl ABFOptimizer {
-    fn new() -> Self {
+    fn new(program: &AnalyzedABFProgram) -> Self {
+        let start = program.mentioned_addresses.first().cloned().unwrap_or(0);
+        let end = program.mentioned_addresses.last().cloned().unwrap_or(0);
         Self {
-            state: ABFState::new(),
+            state: ABFState::new(start, end),
             address_map: BTreeMap::new(),
             builder: ABFProgramBuilder::new(),
         }
@@ -83,27 +109,34 @@ impl ABFOptimizer {
 
     fn analyze_abf_program(program: &ABFProgram) -> AnalyzedABFProgram {
         let mut modified_addresses = vec![];
+        let mut mentioned_addresses = vec![];
         let mut analyzed_instructions = vec![];
         for instruction in &program.instructions {
             match instruction {
                 ABFInstruction::New(address, value) => {
                     modified_addresses.push(*address);
+                    mentioned_addresses.push(*address);
                     analyzed_instructions.push(AnalyzedABFInstruction::New(*address, *value));
                 }
                 ABFInstruction::Read(address) => {
                     modified_addresses.push(*address);
+                    mentioned_addresses.push(*address);
                     analyzed_instructions.push(AnalyzedABFInstruction::Read(*address));
                 }
                 ABFInstruction::Free(_) => {}
                 ABFInstruction::Write(address) => {
+                    mentioned_addresses.push(*address);
                     analyzed_instructions.push(AnalyzedABFInstruction::Write(*address));
                 }
                 ABFInstruction::Add(address, value) => {
                     modified_addresses.push(*address);
+                    mentioned_addresses.push(*address);
                     analyzed_instructions.push(AnalyzedABFInstruction::Add(*address, *value));
                 }
                 ABFInstruction::While(predicate, body) => {
                     let analyzed_body = Self::analyze_abf_program(body);
+                    mentioned_addresses.push(*predicate);
+                    mentioned_addresses.extend_from_slice(&analyzed_body.mentioned_addresses);
                     modified_addresses.push(*predicate);
                     modified_addresses.extend_from_slice(&analyzed_body.modified_addresses);
                     analyzed_instructions
@@ -113,23 +146,34 @@ impl ABFOptimizer {
         }
         modified_addresses.sort();
         modified_addresses.dedup();
+        mentioned_addresses.sort();
+        mentioned_addresses.dedup();
         AnalyzedABFProgram {
             instructions: analyzed_instructions,
             modified_addresses,
+            mentioned_addresses,
         }
     }
 
-    fn create_child(&self) -> Self {
+    fn create_child(&self, program: &AnalyzedABFProgram) -> Self {
+        let start = program.mentioned_addresses.first().cloned().unwrap_or(0);
+        let end = program.mentioned_addresses.last().cloned().unwrap_or(0);
+        let mut child_address_map = BTreeMap::new();
+        for address in &program.mentioned_addresses {
+            if let Some(mapped_address) = self.address_map.get(address) {
+                child_address_map.insert(*address, *mapped_address);
+            }
+        }
         Self {
-            state: self.state.clone(),
-            address_map: self.address_map.clone(),
+            state: self.state.create_child(start, end),
+            address_map: child_address_map,
             builder: self.builder.create_child(),
         }
     }
 
-    fn merge_child(&mut self, rhs: Self) {
-        self.state = rhs.state;
-        self.address_map = rhs.address_map;
+    fn merge_child(&mut self, mut rhs: Self) {
+        self.state.merge_child(rhs.state);
+        self.address_map.append(&mut rhs.address_map);
         self.builder.merge_child(rhs.builder);
     }
 
@@ -207,7 +251,7 @@ impl ABFOptimizer {
 
                     // We first try to unroll this loop unless it's infinite or runtime dependent.
                     if modified_addresses.contains(address) && predicate != ABFValue::Runtime {
-                        let mut child_optimizer = self.create_child();
+                        let mut child_optimizer = self.create_child(body);
 
                         for _ in 0..255 * 255 {
                             let predicate = child_optimizer.get_value(*address);
@@ -261,8 +305,8 @@ impl ABFOptimizer {
     }
 
     pub fn optimize_abf(program: &ABFProgram) -> ABFProgram {
-        let mut optimizer = Self::new();
         let analyzed_program = Self::analyze_abf_program(program);
+        let mut optimizer = Self::new(&analyzed_program);
         optimizer.optimize_abf_impl(&analyzed_program);
         optimizer.builder.build()
     }
