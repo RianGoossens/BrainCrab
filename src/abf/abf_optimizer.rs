@@ -38,7 +38,10 @@ struct ABFState {
 }
 
 impl ABFState {
-    fn new(start: u16, end: u16) -> Self {
+    fn new(program: &AnalyzedABFProgram) -> Self {
+        let start = program.mentioned_addresses.first().cloned().unwrap_or(0);
+        let end = program.mentioned_addresses.last().cloned().unwrap_or(0);
+
         assert!(end >= start);
         let len = end + 1 - start;
         Self {
@@ -48,7 +51,9 @@ impl ABFState {
         }
     }
 
-    fn create_child(&self, start: u16, end: u16) -> Self {
+    fn create_child(&self, program: &AnalyzedABFProgram) -> Self {
+        let start = program.mentioned_addresses.first().cloned().unwrap_or(0);
+        let end = program.mentioned_addresses.last().cloned().unwrap_or(0);
         assert!(end >= start);
         assert!(start >= self.offset);
         let start_offset = start - self.offset;
@@ -98,10 +103,8 @@ pub struct ABFOptimizer {
 
 impl ABFOptimizer {
     fn new(program: &AnalyzedABFProgram) -> Self {
-        let start = program.mentioned_addresses.first().cloned().unwrap_or(0);
-        let end = program.mentioned_addresses.last().cloned().unwrap_or(0);
         Self {
-            state: ABFState::new(start, end),
+            state: ABFState::new(program),
             address_map: BTreeMap::new(),
             builder: ABFProgramBuilder::new(),
         }
@@ -156,8 +159,6 @@ impl ABFOptimizer {
     }
 
     fn create_child(&self, program: &AnalyzedABFProgram) -> Self {
-        let start = program.mentioned_addresses.first().cloned().unwrap_or(0);
-        let end = program.mentioned_addresses.last().cloned().unwrap_or(0);
         let mut child_address_map = BTreeMap::new();
         for address in &program.mentioned_addresses {
             if let Some(mapped_address) = self.address_map.get(address) {
@@ -165,7 +166,7 @@ impl ABFOptimizer {
             }
         }
         Self {
-            state: self.state.create_child(start, end),
+            state: self.state.create_child(program),
             address_map: child_address_map,
             builder: self.builder.create_child(),
         }
