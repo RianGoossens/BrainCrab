@@ -16,12 +16,7 @@ Here are my upcoming tasks.
   - optimized could do the address optimization and others
 - Better compiler errors by storing program pointers at parse time
 - Language documentation
-- Better memory management
-  - Mark edited memory as dirty
-  - Zeroing memory makes it clean
-  - Have a special function to explicitly mark memory as zero
-  - Do not clean up when freeing
-  - When allocating memory, check if it's dirty, and zero if so.
+- ABF documentation
 
 ### Braincrab Language TODO
 - Types? (u8, bool, structs, arrays...)
@@ -31,12 +26,8 @@ Here are my upcoming tasks.
   - init with strings
   - foreach on mutable arrays
 - Macros
-- Make read work as an expression
 - Comments
 - Modules
-
-### New ABF TODO
-- Document the concept somewhere
 
 ## Bugs
 - Filter parser should somehow prioritize it's errors from the inner parser
