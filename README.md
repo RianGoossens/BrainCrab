@@ -38,8 +38,6 @@ Here are my upcoming tasks.
 ### New ABF TODO
 - Document the concept somewhere
 - Use ABFState in both `ABFOptimizer` and `ABFCompiler`
-- Rewrite `BrainCrabCompiler`
-  - number_testing.bc before: 4kb
 
 ## Bugs
 - Filter parser should somehow prioritize it's errors from the inner parser
