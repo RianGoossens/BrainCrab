@@ -20,6 +20,7 @@ pub struct AnalyzedABFProgram {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ABFValue {
+    Unused,
     Runtime,
     CompileTime(u8),
 }
@@ -34,7 +35,6 @@ impl From<u8> for ABFValue {
 struct ABFState {
     offset: u16,
     values: Vec<ABFValue>,
-    used: Vec<bool>,
 }
 
 impl ABFState {
@@ -46,8 +46,7 @@ impl ABFState {
         let len = end + 1 - start;
         Self {
             offset: start,
-            values: vec![0.into(); len as usize],
-            used: vec![false; len as usize],
+            values: vec![ABFValue::Unused; len as usize],
         }
     }
 
@@ -61,7 +60,6 @@ impl ABFState {
         Self {
             offset: start,
             values: self.values[start_offset as usize..end_offset as usize].to_vec(),
-            used: self.used[start_offset as usize..end_offset as usize].to_vec(),
         }
     }
 
@@ -73,24 +71,18 @@ impl ABFState {
         let start_offset = child.offset - self.offset;
         let end_offset = child.offset + child.values.len() as u16 - self.offset;
         self.values[start_offset as usize..end_offset as usize].copy_from_slice(&child.values);
-        self.used[start_offset as usize..end_offset as usize].copy_from_slice(&child.used);
     }
 
     fn is_used(&self, address: u16) -> bool {
-        *self.used.get((address - self.offset) as usize).unwrap()
+        self.values[(address - self.offset) as usize] == ABFValue::Unused
     }
 
     fn get_value(&self, address: u16) -> ABFValue {
-        if let Some(value) = self.values.get((address - self.offset) as usize) {
-            *value
-        } else {
-            0.into()
-        }
+        self.values[(address - self.offset) as usize]
     }
 
     fn set_value(&mut self, address: u16, value: impl Into<ABFValue>) {
         self.values[(address - self.offset) as usize] = value.into();
-        self.used[(address - self.offset) as usize] = true;
     }
 }
 
@@ -210,6 +202,7 @@ impl ABFOptimizer {
                     destination
                 }
                 ABFValue::Runtime => panic!("Runtime value that has no mapped address: {address}"),
+                _ => panic!("Unused value"),
             }
         }
     }
@@ -230,6 +223,7 @@ impl ABFOptimizer {
                     let destination_address = match value {
                         ABFValue::CompileTime(value) => self.builder.new_address(value),
                         ABFValue::Runtime => self.get_mapped_address(*address),
+                        _ => panic!("Unused value"),
                     };
                     self.set_mapped_address(*address, destination_address);
                     self.builder.write(destination_address);
