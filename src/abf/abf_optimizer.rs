@@ -73,10 +73,6 @@ impl ABFState {
         self.values[start_offset as usize..end_offset as usize].copy_from_slice(&child.values);
     }
 
-    fn is_used(&self, address: u16) -> bool {
-        self.values[(address - self.offset) as usize] == ABFValue::Unused
-    }
-
     fn get_value(&self, address: u16) -> ABFValue {
         self.values[(address - self.offset) as usize]
     }
@@ -179,7 +175,7 @@ impl ABFOptimizer {
     }
 
     fn address_is_used(&self, address: u16) -> bool {
-        self.state.is_used(address)
+        self.state.get_value(address) != ABFValue::Unused
     }
 
     fn set_mapped_address(&mut self, source: u16, destination: u16) {
